@@ -3,15 +3,19 @@
 """
 Config script
 """
+path_to_words = dict(
+    virusfamily="Orthomyxoviridae"
+)
 path_to_tools = dict(
     sra_tools="/media/studentVEE/Data/Lisan/Tools/sratoolkit.3.0.0-ubuntu64/bin",
     ray="/media/studentVEE/Data/Lisan/Tools/Ray-2.3.1",
-    diamondblast="/media/studentVEE/Data/Lisan/Tools/Diamond_blast/diamond"
+    diamondblast="/media/studentVEE/Data/Lisan/Tools/Diamond_blast/database_nr"
 )
 
 path_to_dirs = dict(
     workdir="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/scripts/Python/",
     basepipe="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/",
+    databases="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/resources/databases/",
     sra_dir="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/scripts/Python/sra_files/",
     fastqdir="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/scripts/Python/fastq_files",
     trimjar="/media/studentVEE/Data/Lisan/Tools/Trimmomatic-0.39/trimmomatic-0.39.jar",
@@ -19,7 +23,7 @@ path_to_dirs = dict(
     bowindex="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/scripts/Python/Bowtie2/ref_genome_btindex",
     denovodir="/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/scripts/Python/denovo/",
     blastdir="/media/studentVEE/Data/Lisan/Tools/Diamond_blast/",
-    diamnond="/media/studentVEE/Data/diamond_blast_nr"
+    spikedir="/media/studentVEE/Data/Lisan/Tools/Diamond_blast/spiked_database"
 )
 
 path_to_files = dict(
@@ -31,7 +35,9 @@ path_to_files = dict(
     mapped_s=path_to_dirs['workdir'] + "trimmed_reads/single/mapped",
     denovo_s=path_to_dirs['denovodir'] + "single",
     denovo_p=path_to_dirs['denovodir'] + "paired",
-    contigs=path_to_dirs['workdir'] + "contigs"
+    contigs=path_to_dirs['workdir'] + "contigs",
+    blastout=path_to_dirs['workdir'] + "blastoutput",
+    orthomatch=path_to_dirs['workdir'] + "blastoutput/orthomatch"
 
 )
 
