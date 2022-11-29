@@ -9,45 +9,45 @@ rule all:
         expand("blastoutput/fetched/single/{sample}_accession.fasta", sample=config['single']),
         expand("blastoutput/fetched/paired/{sample}_accession.fasta", sample=config['paired']),
 
-
 rule prefetching:
     priority: 10
     output:
-        "sra_files/{sample}/{sample}.sra"
+        temp("sra_files/{sample}/{sample}.sra")
     log:
         "sra_files/logs/{sample}.log"
     shell:
         """
         (prefetch {wildcards.sample} -O sra_files) > {log} 2>&1 && touch {output}
         """
-
 rule fastqdump:
     priority: 9
     input:
         "sra_files/{sample}/{sample}.sra"
     output:
-        "fastq_files/log/{sample}.log",
-        "fastq_files/{sample}.fastq",
-        "fastq_files/{sample}_1.fastq",
-        "fastq_files/{sample}_2.fastq"
+        temp("fastq_files/log/{sample}.log"),
+        temp("fastq_files/{sample}.fastq"),
+        temp("fastq_files/{sample}_1.fastq"),
+        temp("fastq_files/{sample}_2.fastq")
+    log:
+        "fastq_files/log/{sample}.log"
     shell:
-        """
-        fasterq-dump -S -O fastq_files/ -t fastq_files/ --split-3 {input} > {output} 2>&1 && touch {output}
-        """
+        """(
+        fasterq-dump -O fastq_files/ {wildcards.sample} 
+        ) >{log} 2>&1 && touch {output}"""
 
 rule bowtieindex:
     priority: 10
     input:
-        "refgen_t.fasta"
+        refgen=config['refgen']
     output:
-        "Bowtie2/btbuild.log",
+        "Bowtie2/btbuild.log"
     log:
         "Bowtie2/log/Bowtie.log"
     benchmark:
         "Bowtie2/benchmarks/Bowtiebench.csv"
     shell:
         """
-        (bowtie2-build {input} Bowtie2/ref_genome_btindex > {output}) >{log} 2>&1
+        (bowtie2-build {input.refgen} Bowtie2/ref_genome_btindex > {output}) >{log} 2>&1
         """
 
 rule trimmomatic_paired:
@@ -57,18 +57,21 @@ rule trimmomatic_paired:
         "fastq_files/{sample}_2.fastq",
         "Bowtie2/btbuild.log",
     output:
-        "trimmomatic/paired/{sample}_1.trim.fastq",
-        "trimmomatic/paired/{sample}_1.untrim.fastq",
-        "trimmomatic/paired/{sample}_2.trim.fastq",
-        "trimmomatic/paired/{sample}_2.untrim.fastq"
+        temp("trimmomatic/paired/{sample}_1.trim.fastq"),
+        temp("trimmomatic/paired/{sample}_1.untrim.fastq"),
+        temp("trimmomatic/paired/{sample}_2.trim.fastq"),
+        temp("trimmomatic/paired/{sample}_2.untrim.fastq")
+    params:
+        jar=config['trimmomatic']['jar'],
+        adapter=config['trimmomatic']['adapter'],
+        paired_config=config['trimmomatic']['paired']
     message:
         "Started read trimming for {wildcards.sample}!"
     log:
         "trimmomatic/paired/logs/{sample}_trimmed.log"
     shell:
         """
-        (java -jar trimmomatic-0.39.jar PE -phred33 {input[0]} {input[1]} {output[0]} {output[1]} {output[2]} {output[3]} ILLUMINACLIP:all_adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:45) >{log} 2>&1 && touch {output}
-        echo Btindex build see {input[2]}
+        (java -jar {params.jar} PE -phred33 {input[0]} {input[1]} {output[0]} {output[1]} {output[2]} {output[3]} ILLUMINACLIP:{params.adapter}{params.paired_config}) >{log} 2>&1 && touch {output}
         """
 rule trimmomatic_single:
     priority: 8
@@ -76,36 +79,38 @@ rule trimmomatic_single:
         "fastq_files/{sample}.fastq",
         "Bowtie2/btbuild.log"
     output:
-        "trimmomatic/single/{sample}.trim.fastq"
+        temp("trimmomatic/single/{sample}.trim.fastq")
+    params:
+        jar=config['trimmomatic']['jar'],
+        adapter=config['trimmomatic']['adapter'],
+        single_config=config['trimmomatic']['single']
     message:
         "Started read trimming for {wildcards.sample}!"
     log:
         "trimmomatic/single/logs/{sample}_trimmed.log"
     shell:
         """
-        (java -jar trimmomatic-0.39.jar SE -phred33 {input[0]} {output} ILLUMINACLIP:all_adapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15) >{log} 2>&1 && touch {output}
-        echo {input[1]}
+        (java -jar {params.jar} SE -phred33 {input[0]} {output} ILLUMINACLIP:{params.adapter} {params.single_config}) >{log} 2>&1 && touch {output}
         """
 rule bowtiemerger:
-    priority: 7
     input:
         "trimmomatic/paired/{sample}_1.untrim.fastq",
         "trimmomatic/paired/{sample}_2.untrim.fastq"
     output:
-        "trimmomatic/merged/{sample}_merged.fastq"
+        temp("trimmomatic/merged/{sample}_merged.fastq")
     shell:
         """
         cat {input[0]} {input[1]} > {output}
         """
+
 rule bowtiesingle:
-    priority: 6
     input:
         "trimmomatic/single/{sample}.trim.fastq"
     output:
-        "Bowtie2/single/{sample}_single.mapped.fastq",
-        "Bowtie2/single/{sample}.sam"
+        temp("Bowtie2/single/{sample}_single.mapped.fastq"),
+        temp("Bowtie2/single/{sample}.sam")
     params:
-        btindex="Bowtie2/ref_genome_btindex"
+        btindex=config['btindex']
     log:
         "Bowtie2/log/{sample}_unmapped.log"
     shell:
@@ -114,7 +119,6 @@ rule bowtiesingle:
         """
 
 rule bowtiepaired:
-    priority: 6
     input:
         "trimmomatic/paired/{sample}_1.trim.fastq",
         "trimmomatic/paired/{sample}_2.trim.fastq",
@@ -126,7 +130,7 @@ rule bowtiepaired:
         "Bowtie2/paired/{sample}_unmapped.1.fastq",
         "Bowtie2/paired/{sample}_unmapped.2.fastq",
     params:
-        btindex="Bowtie2/ref_genome_btindex"
+        btindex=config['btindex']
     log:
         "Bowtie2/log/{sample}_unmapped.log"
     shell:
@@ -135,7 +139,6 @@ rule bowtiepaired:
         """
 
 rule denovo_single:
-    priority: 5
     input:
         "Bowtie2/single/{sample}_single.mapped.fastq"
     output:
@@ -145,13 +148,12 @@ rule denovo_single:
         "denovo/single/log/{sample}_log.file"
     shell:
         """
-        mpirun -n 2 Ray -s {input} -o {output} 1>/dev/null 2>> {log} && touch {output[0]}
+        mpirun -n 2 Ray -s {input} -o {output[0]} 1>/dev/null 2>> {log} && touch {output[0]}
         cat {output[0]}/Contigs.fasta > {output[1]} && touch {output[1]}
         """
 
 # Get contigs for blast
 rule denovo_paired:
-    priority: 5
     input:
         "Bowtie2/paired/{sample}_unpaired.unmapped.fastq",
         "Bowtie2/paired/{sample}_unmapped.1.fastq",
@@ -165,19 +167,18 @@ rule denovo_paired:
         "denovo/paired/log/{sample}.log.file"
     shell:
         """
-        mpiexec  -n 2 Ray -s {input[0]} -o {output[0]} 1>/dev/null 2>> {log[0]} && touch {output[0]}
-        mpiexec  -n 2 Ray -p {input[1]} {input[2]} -o {output[1]} 1>/dev/null 2>> {log[1]} && touch {output[1]}
+        mpirun  -n 2 Ray -s {input[0]} -o {output[0]} 1>/dev/null 2>> {log[0]} && touch {output[0]}
+        mpirun  -n 2 Ray -p {input[1]} {input[2]} -o {output[1]} 1>/dev/null 2>> {log[1]} && touch {output[1]}
         cat {output[0]}/Contigs.fasta {output[1]}/Contigs.fasta > {output[2]} && touch {output[2]}
         """
 
 rule blasting_single:
-    priority: 4
     input:
         "contigs/single/{sample}.Contigs.fasta"
     output:
         "blastoutput/single/{sample}_matches.tsv"
     params:
-        diamond="spikeddb.dmnd"
+        diamond=config['diamond']
     run:
         if os.stat(f"{input}").st_size > 1:
             subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input} --sensitive --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} && touch {output}", shell=True)
@@ -185,13 +186,12 @@ rule blasting_single:
             subprocess.call(f"touch {output}", shell=True)
 
 rule blasting_paired:
-    priority: 4
     input:
         "contigs/paired/{sample}.Contigs.fasta"
     output:
         "blastoutput/paired/{sample}_matches.tsv"
     params:
-        diamond="spikeddb.dmnd"
+        diamond=config['diamond']
     run:
         if os.stat(f"{input}").st_size > 1:
             subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input} --sensitive --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} && touch {output}", shell=True)
@@ -199,14 +199,12 @@ rule blasting_paired:
             subprocess.call(f"touch {output}", shell=True)
 
 rule keywords:
-    priority: 10
     output:
         "Keywords.txt"
     script:
         "keyword.py"
 
 rule blastmatcher_single:
-    priority: 3
     input:
         "blastoutput/single/{sample}_matches.tsv",
         "Keywords.txt"
@@ -221,7 +219,6 @@ rule blastmatcher_single:
             subprocess.call(f"touch {output}", shell=True)
 
 rule blastmatcher_paired:
-    priority: 3
     input:
         "blastoutput/paired/{sample}_matches.tsv",
         "Keywords.txt"
@@ -256,7 +253,7 @@ rule efetcher_paired:
                     newacc = re.findall("[A-Z]+?[0-9 A-Z.]+[0-9.]+?",acc)
                     for myacc in newacc:
                         my_acc.append(myacc)
-                        seqfetch = f"esearch -db nucleotide -query {myacc} | efetch -format fasta > blastoutput//fetched//paired//{srr.split('_')[0]}_{myacc}.fasta"
+                        seqfetch = f"esearch -db protein -query {myacc} | efetch -format fasta_cds_na > blastoutput//fetched//paired//{srr.split('_')[0]}_{myacc}.fasta"
                         subprocess.call(seqfetch,shell=True)
 
 
@@ -280,7 +277,7 @@ rule efetcher_single:
                     newacc = re.findall("[A-Z]+?[0-9 A-Z.]+[0-9.]+?",acc)
                     for myacc in newacc:
                         my_acc.append(myacc)
-                        seqfetch = f"esearch -db nucleotde -query {myacc} | efetch -format fasta > blastoutput//fetched//single//{srr.split('_')[0]}_{myacc}.fasta"
+                        seqfetch = f"esearch -db protein -query {myacc} | efetch -format fasta_cds_na  > blastoutput//fetched//single//{srr.split('_')[0]}_{myacc}.fasta"
                         subprocess.call(seqfetch,shell=True)
 
 rule merge_acc_single:
@@ -289,9 +286,8 @@ rule merge_acc_single:
     output:
         "blastoutput/fetched/single/{sample}_accession.fasta"
     run:
-        if os.path.exists(f"blastoutput/fetched/single/{wildcards.sample}*"):
-            print(os.stat("blastoutput/fetched/single/").st_size)
-            subprocess.call(f"cat blastoutput/fetched/single/{wildcards.sample}* >> {output} && touch {output}")
+        if os.path.exists(subprocess.call(f"find blastoutput/fetched/single/{wildcards.sample}*", shell=True)):
+            subprocess.call(f"cat blastoutput/fetched/single/{wildcards.sample}* >> {output} && touch {output}", shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
@@ -301,8 +297,8 @@ rule merge_acc_paired:
     output:
         "blastoutput/fetched/paired/{sample}_accession.fasta"
     run:
-        if os.path.exists(f"blastoutput/fetched/paired/{wildcards.sample}*"):
-            subprocess.call(f"cat blastoutput/fetched/paired/{wildcards.sample}* >> {output} && touch {output}")
+        if os.path.exists(subprocess.call(f"find blastoutput/fetched/paired/{wildcards.sample}*", shell=True)):
+            subprocess.call(f"cat blastoutput/fetched/paired/{wildcards.sample}* >> {output} && touch {output}",shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
