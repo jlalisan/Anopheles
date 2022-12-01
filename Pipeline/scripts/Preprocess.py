@@ -162,10 +162,12 @@ def create_output_dirs():
     blastoutput = f"{work_dir}/blastoutput"
     orthomatch = f"{blastoutput}/orthomatch"
     accessions = f"{blastoutput}/accessions/fetched"
+    geneious_a = f"{work_dir}/geneious/accessions"
+    geneious_c = f"{work_dir}/geneious/contigs"
 
     # Makes all the directories
     mylist = (sra_files, fastq_files, trimmed_s, trimmed_p, trimmed_l, bowtie_i,
-              denovo_s, denovo_p, contigs, blastoutput, orthomatch, accessions)
+              denovo_s, denovo_p, contigs, blastoutput, orthomatch, accessions, geneious_c, geneious_a)
     for i in mylist:
         # Exist_ok is required incase the user reruns the program and just deletes or moves data
         os.makedirs(i, exist_ok=True)
@@ -180,8 +182,8 @@ def bowtie2_btbuild():
 
 
 def prefetch(sample):
-    """ Prefetches the samples given from the get_accession function. """
     os.chdir(config.path_to_dirs['workdir'])
+    """ Prefetches the samples given from the get_accession function. """
     for sra_id in sample:
         print(f"Currently downloading {sra_id}")
         # Makes directory if not there.
@@ -335,9 +337,10 @@ def denovo():
 
     for index in range(0, len(correct)):
         myfile = correct[index]
+        print(myfile)
         # Alerts the user to the start of the assembly process.
         print(f"Assembling: {myfile.split('_')[0]}")
-        novosingle = f"mpiexec -n 20 Ray -s {myfile} -o {config.path_to_files['denovo_s']}/{myfile.split('_')[0]}.forblast 1>/dev/null 2>> {config.path_to_files['denovo_s']}/denovo_log_file"
+        novosingle = f"mpirun -n 2 Ray -s {myfile} -o {config.path_to_files['denovo_s']}/{myfile.split('_')[0]}.forblast 1>/dev/null 2>> {config.path_to_files['denovo_s']}/denovo_log_file"
         subprocess.call(novosingle, shell=True)
 
     # paired
@@ -366,11 +369,13 @@ def denovo():
 
         print(f"Assembling: {r1.split('.')[0]} with {r2.split('.')[0]} and {other.split('.')[0]}")
         # Assembles all the files that are paired.
-        myray = f"mpiexec -n 20 Ray -p {r1} {r2} -o {config.path_to_files['denovo_p']}/{r1.split('_')[0]}.forblast 1>/dev/null 2>> {config.path_to_files['denovo_p']}/denovo_log_file"
-        myrayu = f"mpiexec -n 20 Ray -s {other} -o {config.path_to_files['denovo_p']}/{other.split('_')[0]}.forblast_u 1>/dev/null 2>> {config.path_to_files['denovo_p']}/denovo_log_file"
+        myray = f"mpiexec  -n 2 Ray -p {r1} {r2} -o {config.path_to_files['denovo_p']}/{r1.split('_')[0]}.forblast 1>/dev/null 2>> {config.path_to_files['denovo_p']}/denovo_log_file"
+        myrayu = f"mpiexec  -n 2 Ray -s {other} -o {config.path_to_files['denovo_p']}/{other.split('_')[0]}.forblast_u 1>/dev/null 2>> {config.path_to_files['denovo_p']}/denovo_log_file"
 
         subprocess.call(myray, shell=True)
         subprocess.call(myrayu, shell=True)
+
+
 
 
 def contigmerger():
@@ -428,7 +433,7 @@ def blaster():
         mycontig = all_contigs[index]
         print(f"Blasting: {mycontig.split('.')[0]}")
         os.chdir(config.path_to_tools["diamondblast"])
-        myblast = f"./diamond blastx -d  {config.path_to_dirs['blastdir']}spiked_database/spikeddb.dmnd -q {config.path_to_files['contigs']}/{mycontig} --sensitive --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {config.path_to_files['blastout']}/{mycontig.split('.')[0]}_matches.tsv"
+        myblast = f"./diamond blastx -d  {config.path_to_dirs['nr_tempdir']}nr_diamond.dmnd -q {config.path_to_files['contigs']}/{mycontig} --sensitive --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {config.path_to_files['blastout']}/{mycontig.split('.')[0]}_matches.tsv"
         subprocess.call(myblast, shell=True)
 
 
@@ -464,9 +469,15 @@ def esearcher():
     for srr in my_srr:
         with open(srr) as srr_file:
             for acc in srr_file:
-                print(f"Finding sequence for {acc}".strip().split('_')[1])
-                seqfetch = f"esearch -db protein -query {acc.strip().split('_')[1]} | efetch -format fasta > fetched/{srr.split('_')[0]}_{acc.strip().split('_')[1]}.fasta"
-                subprocess.call(seqfetch, shell=True)
+                if acc.startswith("Uni"):
+                    acc = acc.strip().split('_')[1]
+                    seqfetch = f"esearch -db protein -query {acc} | efetch -format fasta > blastoutput/fetched/{srr.split('_')[0]}_{acc}.fasta"
+                    subprocess.call(seqfetch, shell=True)
+
+                else:
+                    print(f"Finding sequence for {acc.strip()}")
+                    seqfetch = f"esearch -db protein -query {acc.strip()} | efetch -format fasta > blastoutput/fetched/{srr.split('_')[0]}_{acc.strip()}.fasta"
+                    subprocess.call(seqfetch, shell=True)
 
 
 
@@ -474,11 +485,11 @@ def main():
     """ Main function to call all the other functions. """
     #create_output_dirs()
     #bowtie2_btbuild()
-    #downloader()
-    #getter()
-    #databasedownload()
-    #merger()
-    # The get_accession is a required argument here.
+   #downloader()
+   #getter()
+   #databasedownload()
+   #merger()
+   ## The get_accession is a required argument here.
 
     #prefetch(get_accession())
     #fastqdump(get_accession())
@@ -489,8 +500,8 @@ def main():
     #denovo()
     #contigmerger()
     #blaster()
-    blastmatcher()
-    esearcher()
+    #blastmatcher()
+    #esearcher()
 
 
 if __name__ == "__main__":

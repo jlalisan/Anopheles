@@ -1,9 +1,41 @@
-refgenome:
+# Please enter all samples here. paired and single.
+samples:
+- SRR9693051
+- SRR1103964
 
-Samples:
-    [
-    ]
+# Please enter all your paired samples here.
+paired:
+- SRR9693051
 
-datadir:
-wdir:
-threads:
+# Please enter all your single samples here.
+single:
+- SRR1103964
+
+# Parameters used by Trimmomatic
+trimmomatic:
+  # Please enter the location to the trimmomatic-0.39.jar file.
+  jar: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow/trimmomatic-0.39.jar"
+
+  # Please enter the path to your adapter file.
+  adapter: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow/all_adapters.fa"
+
+  # The parameters Trimmomatic uses for single files.
+  single: ":2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15"
+
+  # The parameters Trimmomatic uses for paired files.
+  paired: ":2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:45"
+
+# Please enter path to reference genome file.
+refgen: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow/Quaranjavirus_refs.fa"
+
+# The Bowtie2 reference files after Bowtie2 builds this for the preprocessing.
+btindex: "Bowtie2/ref_genome_btindex"
+
+# The Bowtie2 reference files after Bowtie2 builds this for the implementation of Geneious (single).
+gen_btindex_s : "Geneious/Bowtie2/single/{sample}/ref_genome_btindex"
+
+# The Bowtie2 reference files after Bowtie2 builds this for the implementation of Geneious (paired).
+gen_btindex_p : "Geneious/Bowtie2/paired/{sample}/ref_genome_btindex"
+
+# Please enter Path to the diamond database.
+diamond: "/media/studentVEE/Data/diamond_blast_nr/nr_diamond.dmnd"

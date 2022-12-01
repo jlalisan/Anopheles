@@ -4,11 +4,6 @@ import re
 
 configfile: "config.yaml"
 
-rule all:
-    input:
-        expand("blastoutput/fetched/single/{sample}_accession.fasta", sample=config['single']),
-        expand("blastoutput/fetched/paired/{sample}_accession.fasta", sample=config['paired']),
-
 rule prefetching:
     priority: 10
     output:
@@ -18,6 +13,7 @@ rule prefetching:
     shell:
         """
         (prefetch {wildcards.sample} -O sra_files) > {log} 2>&1 && touch {output}
+        echo {wildcards}
         """
 rule fastqdump:
     priority: 9
@@ -90,7 +86,7 @@ rule trimmomatic_single:
         "trimmomatic/single/logs/{sample}_trimmed.log"
     shell:
         """
-        (java -jar {params.jar} SE -phred33 {input[0]} {output} ILLUMINACLIP:{params.adapter} {params.single_config}) >{log} 2>&1 && touch {output}
+        (java -jar {params.jar} SE -phred33 {input[0]} {output} ILLUMINACLIP:{params.adapter}{params.single_config}) >{log} 2>&1 && touch {output}
         """
 rule bowtiemerger:
     input:
@@ -107,7 +103,7 @@ rule bowtiesingle:
     input:
         "trimmomatic/single/{sample}.trim.fastq"
     output:
-        temp("Bowtie2/single/{sample}_single.mapped.fastq"),
+        "Bowtie2/single/{sample}_single.mapped.fastq",
         temp("Bowtie2/single/{sample}.sam")
     params:
         btindex=config['btindex']
@@ -298,7 +294,7 @@ rule merge_acc_paired:
         "blastoutput/fetched/paired/{sample}_accession.fasta"
     run:
         if os.path.exists(subprocess.call(f"find blastoutput/fetched/paired/{wildcards.sample}*", shell=True)):
-            subprocess.call(f"cat blastoutput/fetched/paired/{wildcards.sample}* >> {output} && touch {output}",shell=True)
+            subprocess.call(f"cat blastoutput/fetched/paired/{wildcards.sample}* >> {output} | sed '/^$/d' {output} && touch {output}",shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
