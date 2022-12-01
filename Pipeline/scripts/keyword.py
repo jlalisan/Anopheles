@@ -1,27 +1,33 @@
 import subprocess
 import re
 import requests
+import yaml
 
-def downloader():
+with open("config.yaml", "r") as yamlfile:
+    data = yaml.load(yamlfile, Loader=yaml.FullLoader)
+    myvirus = data['virusname']
+
+
+def downloader(family):
     """ Downloads the HTML page for the virus family of choice"""
     # Gets the correct URL and Virus family from the config
-    url = f"https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name=Orthomyxoviridae"
+    url = f"https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name={family}"
     data = requests.get(url)
 
     # Writes the entire HTML page into a txt format
-    with open("Orthomyxo.txt", "w") as out_f:
+    with open(f"{family}.txt", "w") as out_f:
         out_f.write(data.text.strip())
 
 
-def getter():
+def getter(family):
     """ Reworks the HTML txt file into all the viruses belonging to the chosen family"""
     viruses = []
-    with open("Orthomyxo.txt") as htmlfile:
+    with open(f"{family}.txt") as htmlfile:
         for line in htmlfile:
             # All viruses in NCBI have links so here we filter all the links.
             if line.startswith("<LI"):
                 # Almost all links have the same start and before line 115 ~ 120 no names are mentioned
-                first = line.strip()[115:].split(">",)[1]
+                first = line.strip()[115:].split(">", )[1]
                 # Uses a regular expression to remove anything behind the virus name such as (Arizona/2019)
                 second = re.sub("[\(\[].*?[\)\]]+", "", first.split("<")[0])
                 # Append all the viruses to a list for later writing.
@@ -40,12 +46,13 @@ def getter():
         out_file.close()
         htmlfile.close()
     # Removes the HTML txt file since it is now obsolete
-    subprocess.call(f"rm Orthomyxo.txt", shell=True)
+    subprocess.call(f"rm {family}.txt", shell=True)
 
 
 def main():
-    downloader()
-    getter()
+    downloader(myvirus)
+    getter(myvirus)
+    yamlfile.close()
 
 
 if __name__ == "__main__":

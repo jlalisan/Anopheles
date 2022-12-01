@@ -39,3 +39,5 @@ gen_btindex_p : "Geneious/Bowtie2/paired/{sample}/ref_genome_btindex"
 
 # Please enter Path to the diamond database.
 diamond: "/media/studentVEE/Data/diamond_blast_nr/nr_diamond.dmnd"
+
+virusname: "Orthomyxoviridae"
