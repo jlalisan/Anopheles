@@ -1,17 +1,10 @@
 # Please enter all samples here. paired and single.
 samples:
-- SRR9693051
-- SRR1103964
 
-# Please enter all your paired samples here.
-paired:
-- SRR9693051
+# Work directory where the workflow starts.
+workdir: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow"
 
-# Please enter all your single samples here.
-single:
-- SRR1103964
-
-# Parameters used by Trimmomatic
+# Parameters used by Trimmomatic.
 trimmomatic:
   # Please enter the location to the trimmomatic-0.39.jar file.
   jar: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow/trimmomatic-0.39.jar"
@@ -31,13 +24,11 @@ refgen: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow
 # The Bowtie2 reference files after Bowtie2 builds this for the preprocessing.
 btindex: "Bowtie2/ref_genome_btindex"
 
-# The Bowtie2 reference files after Bowtie2 builds this for the implementation of Geneious (single).
-gen_btindex_s : "Geneious/Bowtie2/single/{sample}/ref_genome_btindex"
-
-# The Bowtie2 reference files after Bowtie2 builds this for the implementation of Geneious (paired).
-gen_btindex_p : "Geneious/Bowtie2/paired/{sample}/ref_genome_btindex"
-
 # Please enter Path to the diamond database.
 diamond: "/media/studentVEE/Data/diamond_blast_nr/nr_diamond.dmnd"
 
+# Please enter the virusfamily name here. example: Orthomyxoviridae
 virusname: "Orthomyxoviridae"
+
+# Key needed for many requests for NCBI.
+api-key: "634f49fd03c829b3809aab550a9209573a08"

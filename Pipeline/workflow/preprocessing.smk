@@ -1,39 +1,43 @@
+# Imports for python code within snakemake.
 import os
 import subprocess
 import re
 
+# Config file with all parameters.
 configfile: "config.yaml"
 
+# Prefetches all the files from the config.
 rule prefetching:
     priority: 10
     output:
+        # Output is put on temp, so after they are no longer needed they are deleted.
         temp("sra_files/{sample}/{sample}.sra")
     log:
         "sra_files/logs/{sample}.log"
     shell:
+        # Prefetches the files and outputs them to sra_files.
         """
         (prefetch {wildcards.sample} -O sra_files) > {log} 2>&1 && touch {output}
         echo {wildcards}
         """
+
+# Downloads the fastq files from the config.
 rule fastqdump:
     priority: 9
     input:
         "sra_files/{sample}/{sample}.sra"
     output:
-        temp("fastq_files/log/{sample}.log"),
-        temp("fastq_files/{sample}.fastq"),
-        temp("fastq_files/{sample}_1.fastq"),
-        temp("fastq_files/{sample}_2.fastq")
-    log:
         "fastq_files/log/{sample}.log"
     shell:
         """(
-        fasterq-dump -O fastq_files/ {wildcards.sample} 
-        ) >{log} 2>&1 && touch {output}"""
+        fasterq-dump -O fastq_files/ {input} 
+        ) >{output} 2>&1 && touch {output}"""
 
+# Build the reference index for the Bowtie2 process.
 rule bowtieindex:
     priority: 10
     input:
+        # Reference genome from the config.
         refgen=config['refgen']
     output:
         "Bowtie2/btbuild.log"
@@ -46,259 +50,206 @@ rule bowtieindex:
         (bowtie2-build {input.refgen} Bowtie2/ref_genome_btindex > {output}) >{log} 2>&1
         """
 
-rule trimmomatic_paired:
+# Trims the files according to the config settings.
+rule trimmomatic:
     priority: 8
     input:
-        "fastq_files/{sample}_1.fastq",
-        "fastq_files/{sample}_2.fastq",
-        "Bowtie2/btbuild.log",
-    output:
-        temp("trimmomatic/paired/{sample}_1.trim.fastq"),
-        temp("trimmomatic/paired/{sample}_1.untrim.fastq"),
-        temp("trimmomatic/paired/{sample}_2.trim.fastq"),
-        temp("trimmomatic/paired/{sample}_2.untrim.fastq")
-    params:
-        jar=config['trimmomatic']['jar'],
-        adapter=config['trimmomatic']['adapter'],
-        paired_config=config['trimmomatic']['paired']
-    message:
-        "Started read trimming for {wildcards.sample}!"
-    log:
-        "trimmomatic/paired/logs/{sample}_trimmed.log"
-    shell:
-        """
-        (java -jar {params.jar} PE -phred33 {input[0]} {input[1]} {output[0]} {output[1]} {output[2]} {output[3]} ILLUMINACLIP:{params.adapter}{params.paired_config}) >{log} 2>&1 && touch {output}
-        """
-rule trimmomatic_single:
-    priority: 8
-    input:
-        "fastq_files/{sample}.fastq",
+        "fastq_files/log/{sample}.log",
         "Bowtie2/btbuild.log"
     output:
-        temp("trimmomatic/single/{sample}.trim.fastq")
+        "trimmomatic/logs/{sample}_trimmed.log"
     params:
+        # Connection to the trimmomatic jar.
         jar=config['trimmomatic']['jar'],
+        # Connection to the trimmomatic adapter file.
         adapter=config['trimmomatic']['adapter'],
+        # Connection to the trimmomatic settings for paired and single files.
+        paired_config=config['trimmomatic']['paired'],
         single_config=config['trimmomatic']['single']
     message:
         "Started read trimming for {wildcards.sample}!"
-    log:
-        "trimmomatic/single/logs/{sample}_trimmed.log"
     shell:
+        # Checks for the files if they belong to single or paired and trims them accordingly.
         """
-        (java -jar {params.jar} SE -phred33 {input[0]} {output} ILLUMINACLIP:{params.adapter}{params.single_config}) >{log} 2>&1 && touch {output}
+        if test -f "fastq_files/{wildcards.sample}_1.fastq"; then
+            (java -jar {params.jar} PE -phred33 fastq_files/{wildcards.sample}_1.fastq fastq_files/{wildcards.sample}_2.fastq trimmomatic/{wildcards.sample}_1.trim.fastq trimmomatic/{wildcards.sample}_1.untrim.fastq trimmomatic/{wildcards.sample}_2.trim.fastq trimmomatic/{wildcards.sample}_2.untrim.fastq ILLUMINACLIP:{params.adapter}{params.paired_config}) 2>> {output}
+        fi
+        if test -f "fastq_files/{wildcards.sample}.fastq"; then
+            (java -jar {params.jar} SE -phred33 fastq_files/{wildcards.sample}.fastq trimmomatic/{wildcards.sample}.trim.fastq ILLUMINACLIP:{params.adapter}{params.single_config}) 2>> {output}
+        fi
+        touch {output}
         """
+
+# Merges the remainder of the paired files for the Bowtie2 process
 rule bowtiemerger:
     input:
-        "trimmomatic/paired/{sample}_1.untrim.fastq",
-        "trimmomatic/paired/{sample}_2.untrim.fastq"
+        "trimmomatic/logs/{sample}_trimmed.log"
     output:
-        temp("trimmomatic/merged/{sample}_merged.fastq")
+        "trimmomatic/logs/{sample}_merged.log"
     shell:
+        # Ignores the single files but will make an empty log file for them.
         """
-        cat {input[0]} {input[1]} > {output}
+        if test -f "trimmomatic/{wildcards.sample}_1.untrim.fastq"; then
+            cat trimmomatic/{wildcards.sample}_1.untrim.fastq trimmomatic/{wildcards.sample}_2.untrim.fastq > trimmomatic/{wildcards.sample}_merged.fastq 2>> {output}
+        else
+            touch {output}
+        fi
         """
 
-rule bowtiesingle:
+# Maps the reads for paired and single files.
+rule bowtie2:
     input:
-        "trimmomatic/single/{sample}.trim.fastq"
+        "trimmomatic/logs/{sample}_merged.log",
+        "trimmomatic/logs/{sample}_trimmed.log"
     output:
-        "Bowtie2/single/{sample}_single.mapped.fastq",
-        temp("Bowtie2/single/{sample}.sam")
+        "Bowtie2/log/{sample}_unmapped.log"
     params:
         btindex=config['btindex']
-    log:
+    shell:
+        # Tests if the files are paired or unpaired and maps them accordingly.
+        """
+        if test -f "trimmomatic/{wildcards.sample}_1.trim.fastq"; then
+            bowtie2 -p 20 --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_unmapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
+        fi
+        if test -f "trimmomatic/{wildcards.sample}.trim.fastq"; then
+            bowtie2 -p 10 --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
+        fi
+        touch {output}
+        """
+
+# Get contigs for blasting. using RAY denovo assembly.
+rule denovo:
+    input:
         "Bowtie2/log/{sample}_unmapped.log"
+    output:
+        "denovo/log/{sample}_u.log.file",
+        "denovo/log/{sample}_log.file"
     shell:
+        # For single and paired files uses MPIrun for the denovo process.
         """
-        bowtie2 -p 10 --end-to-end -x {params.btindex} {input} --al {output[0]} 1> {output[1]} 2>> {log} && touch {output}
+        if test -f "Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq"; then
+            mpirun -n 2 Ray -s Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq -o denovo/{wildcards.sample}.forblast 1>/dev/null 2>> {output[0]}
+        fi
+
+        if test -f "Bowtie2/{wildcards.sample}_unmapped.1.fastq"; then
+            mpirun -n 2 Ray -p Bowtie2/{wildcards.sample}_unmapped.1.fastq Bowtie2/{wildcards.sample}_unmapped.2.fastq -o denovo/{wildcards.sample}_u.forblast 1>/dev/null 2>> {output[1]}
+        fi
+
+        if test -f "Bowtie2/{wildcards.sample}_single.mapped.fastq"; then
+            mpirun -n 2 Ray -s Bowtie2/{wildcards.sample}_single.mapped.fastq -o denovo/{wildcards.sample}.forblast 1>/dev/null 2>> {output[1]}
+        fi
+
+        touch {output}
         """
 
-rule bowtiepaired:
+# Gathers all the contigs together and moves this to the correct location.
+rule getcontigs:
     input:
-        "trimmomatic/paired/{sample}_1.trim.fastq",
-        "trimmomatic/paired/{sample}_2.trim.fastq",
-        "trimmomatic/merged/{sample}_merged.fastq",
+        "denovo/log/{sample}_u.log.file",
+        "denovo/log/{sample}_log.file"
     output:
-        "Bowtie2/paired/{sample}_unmapped.fastq",
-        "Bowtie2/paired/{sample}_unpaired.unmapped.fastq",
-        "Bowtie2/paired/{sample}.sam",
-        "Bowtie2/paired/{sample}_unmapped.1.fastq",
-        "Bowtie2/paired/{sample}_unmapped.2.fastq",
-    params:
-        btindex=config['btindex']
-    log:
-        "Bowtie2/log/{sample}_unmapped.log"
+        "contigs/{sample}.Contigs.fasta"
     shell:
         """
-        bowtie2 -p 20 --end-to-end -x {params.btindex} --fr -1 {input[0]} -2 {input[1]} -U {input[2]} --al-conc {output[0]} --al {output[1]} 1> {output[2]} 2>> {log} 2>&1 && touch {output}
+        if test -f "denovo/{wildcards.sample}_u.forblast/Contigs.fasta"; then
+            cat denovo/{wildcards.sample}.forblast/Contigs.fasta denovo/{wildcards.sample}_u.forblast/Contigs.fasta > {output}
+        else
+            cat denovo/{wildcards.sample}.forblast/Contigs.fasta > {output} && touch {output}
+        fi
         """
 
-rule denovo_single:
+# Blasts the contigs to check for any hits.
+rule blasting:
     input:
-        "Bowtie2/single/{sample}_single.mapped.fastq"
+        "contigs/{sample}.Contigs.fasta"
     output:
-        directory("denovo/single/{sample}.forblast"),
-        "contigs/single/{sample}.Contigs.fasta"
-    log:
-        "denovo/single/log/{sample}_log.file"
-    shell:
-        """
-        mpirun -n 2 Ray -s {input} -o {output[0]} 1>/dev/null 2>> {log} && touch {output[0]}
-        cat {output[0]}/Contigs.fasta > {output[1]} && touch {output[1]}
-        """
-
-# Get contigs for blast
-rule denovo_paired:
-    input:
-        "Bowtie2/paired/{sample}_unpaired.unmapped.fastq",
-        "Bowtie2/paired/{sample}_unmapped.1.fastq",
-        "Bowtie2/paired/{sample}_unmapped.2.fastq"
-    output:
-        directory("denovo/paired/{sample}.forblast"),
-        directory("denovo/paired/{sample}_u.forblast"),
-        "contigs/paired/{sample}.Contigs.fasta"
-    log:
-        "denovo/paired/log/{sample}_u.log.file",
-        "denovo/paired/log/{sample}.log.file"
-    shell:
-        """
-        mpirun  -n 2 Ray -s {input[0]} -o {output[0]} 1>/dev/null 2>> {log[0]} && touch {output[0]}
-        mpirun  -n 2 Ray -p {input[1]} {input[2]} -o {output[1]} 1>/dev/null 2>> {log[1]} && touch {output[1]}
-        cat {output[0]}/Contigs.fasta {output[1]}/Contigs.fasta > {output[2]} && touch {output[2]}
-        """
-
-rule blasting_single:
-    input:
-        "contigs/single/{sample}.Contigs.fasta"
-    output:
-        "blastoutput/single/{sample}_matches.tsv"
+        "blastoutput/{sample}_matches.tsv"
     params:
         diamond=config['diamond']
+    log: "blastoutput/log/{sample}_log.file"
     run:
         if os.stat(f"{input}").st_size > 1:
-            subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input} --sensitive --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} && touch {output}", shell=True)
+            subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input[0]} --sensitive --threads 8 --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} 2>> {log}",shell=True)
+            subprocess.call(f"echo {wildcards.sample}",shell=True)
         else:
-            subprocess.call(f"touch {output}", shell=True)
+            subprocess.call(f"touch {output}",shell=True)
 
-rule blasting_paired:
-    input:
-        "contigs/paired/{sample}.Contigs.fasta"
-    output:
-        "blastoutput/paired/{sample}_matches.tsv"
-    params:
-        diamond=config['diamond']
-    run:
-        if os.stat(f"{input}").st_size > 1:
-            subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input} --sensitive --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} && touch {output}", shell=True)
-        else:
-            subprocess.call(f"touch {output}", shell=True)
 
+# Uses the Keyword.py script to create Keywords.txt according to the config.
 rule keywords:
     output:
         "Keywords.txt"
     script:
         "keyword.py"
 
-rule blastmatcher_single:
+# Matches the blast results to the Keywords and puts this into a hits file.
+rule blastmatcher:
     input:
-        "blastoutput/single/{sample}_matches.tsv",
+        "blastoutput/{sample}_matches.tsv",
         "Keywords.txt"
     output:
-        "blastoutput/single/{sample}_ortho_matches.tsv",
-        "blastoutput/accessions/single/{sample}_acc_hits.txt"
+        "blastoutput/{sample}_ortho_matches.tsv",
+        "blastoutput/accessions/{sample}_acc_hits.txt"
     run:
         if os.stat(f"{input[0]}").st_size > 1:
-            subprocess.call(f"grep -f {input[1]} {input[0]} > {output[0]}", shell=True)
-            subprocess.call("awk '{{print $2}}' " + f"{output[0]} | sort | uniq > {output[1]} && touch {output}", shell=True)
+            subprocess.call(f"grep -f {input[1]} {input[0]} > {output[0]}",shell=True)
+            subprocess.call("awk '{{print $2}}' " + f"{output[0]} | sort | uniq > {output[1]} && touch {output}",shell=True)
         else:
-            subprocess.call(f"touch {output}", shell=True)
+            subprocess.call(f"touch {output}",shell=True)
 
-rule blastmatcher_paired:
-    input:
-        "blastoutput/paired/{sample}_matches.tsv",
-        "Keywords.txt"
-    output:
-        "blastoutput/paired/{sample}_ortho_matches.tsv",
-        "blastoutput/accessions/paired/{sample}_acc_hits.txt"
-    run:
-        if os.stat(f"{input[0]}").st_size > 1:
-            subprocess.call(f"grep -f {input[1]} {input[0]} > {output[0]}", shell=True)
-            subprocess.call("awk '{{print $2}}' " + f"{output[0]} | sort | uniq > {output[1]} && touch {output}", shell=True)
-        else:
-            subprocess.call(f"touch {output}", shell=True)
-
-
-rule efetcher_paired:
+# Fetches the hits and puts these into a seperate folder.
+rule efetcher:
     priority: 2
     input:
-        "blastoutput/accessions/paired/{sample}_acc_hits.txt"
+        "blastoutput/accessions/{sample}_acc_hits.txt"
     benchmark:
-        "blastoutput/fetched/paired/bench/{sample}.bench.txt"
+        "blastoutput/fetched/bench/{sample}.bench.txt"
+    log:
+        "blastoutput/fetched/log/{sample}.log"
+    params:
+        # Api key. It will work without it, but it will give a long confusing output stream
+        api=config['api-key']
     run:
+        # To remember the SRR files and the Accession names
         my_srr = []
         my_acc = []
 
-        for files in os.listdir("blastoutput//accessions//paired"):
+        for files in os.listdir("blastoutput//accessions"):
             if files.startswith("SRR"):
                 my_srr.append(files)
 
         for srr in my_srr:
-            with open(f"blastoutput//accessions//paired//{srr}") as srr_file:
+            with open(f"blastoutput//accessions//{srr}") as srr_file:
                 for acc in srr_file:
+                    # Incase any accession is named Uniprot-PQA4241 or anything. This will filter the PQA4241 name.
                     newacc = re.findall("[A-Z]+?[0-9 A-Z.]+[0-9.]+?",acc)
                     for myacc in newacc:
                         my_acc.append(myacc)
-                        seqfetch = f"esearch -db protein -query {myacc} | efetch -format fasta_cds_na > blastoutput//fetched//paired//{srr.split('_')[0]}_{myacc}.fasta"
+                        # Searches and fetches the accessions in nucleotide form
+                        seqfetch = f"esearch -db protein -query {myacc} -api_key {params.api} | efetch -format fasta_cds_na > blastoutput//fetched//{srr.split('_')[0]}_{myacc}.fasta 2>> {log}"
                         subprocess.call(seqfetch,shell=True)
 
-
-rule efetcher_single:
-    priority: 2
+# Merges all the accessions per SRR file.
+rule merge_acc:
     input:
-        "blastoutput/accessions/single/{sample}_acc_hits.txt"
-    benchmark:
-        "blastoutput/fetched/single/bench/{sample}.bench.txt"
-    run:
-        my_srr = []
-        my_acc = []
-
-        for files in os.listdir("blastoutput//accessions//single"):
-            if files.startswith("SRR"):
-                my_srr.append(files)
-
-        for srr in my_srr:
-            with open(f"blastoutput//accessions//single//{srr}") as srr_file:
-                for acc in srr_file:
-                    newacc = re.findall("[A-Z]+?[0-9 A-Z.]+[0-9.]+?",acc)
-                    for myacc in newacc:
-                        my_acc.append(myacc)
-                        seqfetch = f"esearch -db protein -query {myacc} | efetch -format fasta_cds_na  > blastoutput//fetched//single//{srr.split('_')[0]}_{myacc}.fasta"
-                        subprocess.call(seqfetch,shell=True)
-
-rule merge_acc_single:
-    input:
-        "blastoutput/fetched/single/bench/{sample}.bench.txt"
+        "blastoutput/fetched/bench/{sample}.bench.txt"
     output:
-        "blastoutput/fetched/single/{sample}_accession.fasta"
-    run:
-        if os.path.exists(subprocess.call(f"find blastoutput/fetched/single/{wildcards.sample}*", shell=True)):
-            subprocess.call(f"cat blastoutput/fetched/single/{wildcards.sample}* >> {output} && touch {output}", shell=True)
-        else:
-            subprocess.call(f"touch {output}",shell=True)
+        "blastoutput/fetched/rework/{sample}_accession.fasta"
+    shell:
+        """
+        if ! [[ -z $(grep '[^[:space:]]' blastoutput/{wildcards.sample}_matches.tsv) ]] ; then
+            cat blastoutput/fetched/{wildcards.sample}* > {output}
+        else
+            touch {output}
+        fi
+        """
 
-rule merge_acc_paired:
+rule clean_acc:
     input:
-        "blastoutput/fetched/paired/bench/{sample}.bench.txt"
+        "blastoutput/fetched/rework/{sample}_accession.fasta"
     output:
-        "blastoutput/fetched/paired/{sample}_accession.fasta"
-    run:
-        if os.path.exists(subprocess.call(f"find blastoutput/fetched/paired/{wildcards.sample}*", shell=True)):
-            subprocess.call(f"cat blastoutput/fetched/paired/{wildcards.sample}* >> {output} | sed '/^$/d' {output} && touch {output}",shell=True)
-        else:
-            subprocess.call(f"touch {output}",shell=True)
-
-onsuccess:
-    with open("dag.txt","w") as f:
-        f.writelines(str(workflow.persistence.dag))
-    shell("cat dag.txt | dot -Tpng > dag.png | rm dag.txt")
+        "blastoutput/fetched/total/{sample}_accession.fasta"
+    shell:
+        """
+        sed -i '/^$/d' {input} | cat {input} > {output}
+        """
