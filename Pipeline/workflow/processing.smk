@@ -1,12 +1,10 @@
 # Imports for python code within snakemake.
-import os
-import shutil
 import subprocess
 import re
 import random
 
 # Config file with all parameters.
-configfile: "config.yaml"
+configfile: "Pipeline/config/config.yaml"
 
 # Build the new Bowtie index.
 rule Bowtie_index:
@@ -20,13 +18,14 @@ rule Bowtie_index:
     benchmark:
         "Geneious/Bowtie2/{sample}/benchmark/Bowtiebench.csv"
     shell:
-        """(
-        if [ -s {input[0]} ]; then
+        """
+        (if [ -s {input[0]} ]; then
             bowtie2-build {input} Geneious/Bowtie2/{wildcards.sample}/ref_genome_btindex > {output} 2>&1
         else
             touch {output}
         fi
-        ) >{log} 2>&1"""
+        ) >{log} 2>&1
+        """
 
 # Maps the contigs against the references (accessions).
 rule Bowtie2:
@@ -124,7 +123,7 @@ rule adjust_consensus:
         myfile = open(f'{input}')
         with open(f'{output}',"r+") as adjusted_consensus:
             for line in myfile:
-                # If the line is an header then append the SRR name to it.
+                # If the line is a header then append the SRR name to it.
                 if line.startswith(">"):
                     adjusted_consensus.write("".join(f">{wildcards.sample}" + "_" + line.strip(">")))
                 else:

@@ -24,16 +24,16 @@ rule prefetching:
         """
 
 # Downloads the fastq files from the config.
-rule fastqdump:
+rule fasterqdump:
     priority: 9
     input:
         "sra_files/{sample}/{sample}.sra"
     output:
         "fastq_files/log/{sample}.log"
     shell:
-        """(
-        fasterq-dump -O fastq_files/ {input} 
-        ) >{output} 2>&1 && touch {output}"""
+        """
+        (fasterq-dump -O fastq_files/ {input}) >{output} 2>&1 && touch {output}
+        """
 
 # Build the reference index for the Bowtie2 process.
 rule bowtieindex:
@@ -268,8 +268,8 @@ rule Bowtie_index:
     benchmark:
         "Geneious/Bowtie2/{sample}/benchmark/Bowtiebench.csv"
     shell:
-        """(
-        if [ -s {input[0]} ]; then
+        """
+        (if [ -s {input[0]} ]; then
             bowtie2-build {input} Geneious/Bowtie2/{wildcards.sample}/ref_genome_btindex > {output} 2>&1
         else
             touch {output}
@@ -443,8 +443,8 @@ rule sam_to_bam:
     log:
         "Postprocess/Bowtie2/{sample}/{sample}_samtobam.log"
     shell:
-        """(
-        if [ -s Postprocess/Bowtie2/{wildcards.sample}/{wildcards.sample}.sam ]; then
+        """
+        (if [ -s Postprocess/Bowtie2/{wildcards.sample}/{wildcards.sample}.sam ]; then
             samtools view --threads 20 -bSh -o {output[2]} {input}
             samtools sort --threads 20 {output[2]} -o {output[0]}
             bamtools split -in {output[0]} -reference
@@ -452,7 +452,8 @@ rule sam_to_bam:
         else
             touch {output}
         fi
-        ) >{log} 2>&1"""
+        ) >{log} 2>&1
+        """
 
 rule bamrename:
     input:

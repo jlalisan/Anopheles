@@ -1,6 +1,6 @@
 # Please enter all samples here. paired and single.
 samples:
-
+  -
 # Work directory where the workflow starts.
 workdir: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow"
 

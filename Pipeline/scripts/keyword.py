@@ -12,11 +12,11 @@ def downloader(family):
     """ Downloads the HTML page for the virus family of choice"""
     # Gets the correct URL and Virus family from the config
     url = f"https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name={family}"
-    data = requests.get(url)
+    geturl = requests.get(url)
 
     # Writes the entire HTML page into a txt format
     with open(f"{family}.txt", "w") as out_f:
-        out_f.write(data.text.strip())
+        out_f.write(geturl.text.strip())
 
 
 def getter(family):
@@ -55,5 +55,6 @@ def main():
     yamlfile.close()
 
 
+# Calls upon the main to make the functions work.
 if __name__ == "__main__":
     main()

@@ -8,6 +8,7 @@ This projects main focus lies with the fully automating of a virus discovery pip
     * [Prerequisites](#prerequisites)
     * [Packages](#packages)
     * [Scripts and pipeline](#scripts-and-pipeline)
+- [Examples](#examples)
 - [Contact](#contact)
 
 ## Project description
@@ -15,7 +16,7 @@ One of the main goals of this project will focus on building/updating an already
 
 Another goal for this project is that the mosquito data will be run through the pipeline and analysed, this will be done in order to see if any viruses are present within the mosquito and which viruses they may be
 
-The final product that will reside within this repository is the  pipeline that can analyse the anopheles mosquito data and gives a representation in the form of a dag file in order to show the user what happened. This product is not specific to the Anopheles mosquito, but for this project the Anopheles mosquito was chosen as a case study
+The final product that will reside within this repository is the pipeline that can analyse the anopheles mosquito data and gives a representation in the form of a dag file in order to show the user what happened. This product is not specific to the Anopheles mosquito, but for this project the Anopheles mosquito was chosen as a case study. The final product is split into two different parts, one full script that does the pre-processing, processing and the post-processing and the separate pre- and post-processing in case the user wants the Geneious software representation.
 
 ## Installation
 For the complete repository please use the following piece of code inside the terminal:
@@ -39,7 +40,7 @@ For all the packages at least the versions mentioned above are required, any ver
 
 Snakemake (7.14) can be installed via a command line input, this can be done for any engine, this does not have to be conda. ```conda install -c bioconda snakemake``` Furthermore a complete installation guide can be found [here](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html).
 
-The SRA-toolkit (3.0.2) can be cloned from the github via [SRA-toolkit](https://github.com/ncbi/sra-tools/wiki/02.-Installing-SRA-Toolkit) here a full installation guide is also shown for the first time user of this program. Do note that if there are multiple users and for the first time, the following argument needs to be used. 
+The SRA-toolkit (3.0.2) can be cloned from the GitHub via [SRA-toolkit](https://github.com/ncbi/sra-tools/wiki/02.-Installing-SRA-Toolkit) here a full installation guide is also shown for the first time user of this program. Do note that if there are multiple users and for the first time, the following argument needs to be used. 
 ```export PATH=$PATH:/path/to/sratoolkit/bin```
 This needs to be done if the program has trouble finding the prefetch or the fasterq-dump application needed.
 
@@ -49,12 +50,12 @@ Ray-tools (2.3.1) are used for the assembly process within the pipeline and can 
 
 For the trimming process the Trimmomatic 0.39 jar is required along with the adapter sequences unless the user has their own adapters. The jar can be downloaded [here](http://www.usadellab.org/cms/?page=trimmomatic). Another version can be used but is not guaranteed to give the same or correct answers.
 
-Diamond blast (2.0.14) is used to see if there are viruses within the data and for a full guide and download information the [github link](https://github.com/bbuchfink/diamond) or directly via [NCBI](https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download). Any required database can also be downloaded via this same link.
+Diamond blast (2.0.14) is used to see if there are viruses within the data and for a full guide and download information the [GitHub link](https://github.com/bbuchfink/diamond) or directly via [NCBI](https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download). Any required database can also be downloaded via this same link.
 
-The Lofreq tool (2.1.6) is used in the final stage of the post processing to create the VCF files, this can be obtained via [this link](https://github.com/CSB5/lofreq/tree/master/dist). An installation guide is included within the repository
+The Lofreq tool (2.1.6) is used in the final stage of the post-processing to create the VCF files, this can be obtained via [this link](https://github.com/CSB5/lofreq/tree/master/dist). An installation guide is included within the repository
 
 ### Packages
-|Name                                   |Version              |   
+|Name                                   |Version              |
 |---                                    |---                  |
 |os                                     |Varies per device    |
 |re                                     |2022.6.2             |
@@ -125,6 +126,34 @@ The image above shows four samples running in parallel, once all the samples are
 `rule delete_files:` Deletes the files that were used.  
 
 In order to run the pipeline the user will need to have all the tools in the correct locations that correspond to that paths, any errors that do appear will be logged in the log files. The script can be run in two parts, either the total script or the pre-processing and the post-processing with a manual mapping, and consensus procedure in between. 
+The Geneious software is not included inside this repository, this can be obtained by the user. Note this is a paid program.
+
+## Examples
+Snakemake code can be run in various ways, below are examples in which the code will run.  
+Run one: A single run of the code using four cores of the system.
+```snakemake --snakefile main.smk -c4 --allow-ambiguity```  
+With this statement the script in this case main (this can be replaced with another script) will be run on four cores, the '--allow-ambiguity' is added so that the code does not error if a rule has similar output to another rule.
+
+Run two: A single run of the code using all the cores of the system.  
+```snakemake --snakefile main.smk --cores --allow-ambiguity```   
+With this line of code all available cores are used in the system, this can also be done with run two, incase the system does not except the cores argument.
+
+Run three: A single run of the code using all the cores of the system with the --jobs statement.   
+```snakemake --snakefile main.smk --jobs --allow-ambiguity```   
+With this argument the entire code gets run, the --jobs can be replaced by -j8 or any other integer after the '-j'.
+
+Run four: The most used argument for this code.   
+```snakemake --snakefile main.smk --jobs --allow-ambiguity --rerun-incomplete --keep-going```   
+In case something goes wrong in a previous run the '--rerun-incomplete' statement has been added, this is also useful incase the user already has some output and wants to rerun the pipeline.
+The '--keep-going' argument is implemented in case of a wrong file, this will make sure that the pipeline does not crash. Do note that the --jobs here is used and if there are other users on the server with a limited amount of cores this is not the best action to take, and should be replaced with an '-j8' or a '-c8' or any other integer.
+
+Run five: Running a specific rule in the pre-processing or post-processing script.   
+```snakemake --snakefile main.smk --jobs --allow-ambiguity --allowed-rules prefetching```   
+With this statement any name of a rule in the script can be selected and run separately, the prefetching name can be replaced for any other rule name. Do make sure to read the snakemake manual before attempting more complicated procedures.
+
+Run six: Dry running in order to debug.   
+```snakemake --snakefile main.smk --jobs --allow-ambiguity --rerun-incomplete --keep-going -n```  
+The '-n' argument here can be used in all previously shown examples and will give a dry-run example of the code. If there is an obvious fault it will give the error so that the script does not kill itself after hours of attempting to run.
 
 ## Contact
 * Lisan Eisinga

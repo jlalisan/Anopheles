@@ -4,7 +4,11 @@ import subprocess
 import re
 
 # Config file with all parameters.
-configfile: "config.yaml"
+configfile: "Pipeline/config/config.yaml"
+
+rule do_preprocessing:
+    input:
+        expand("Postprocess/logs/{sample}.log.file", sample=config['samples'])
 
 # Prefetches all the files from the config.
 rule prefetching:
@@ -29,9 +33,9 @@ rule fastqdump:
     output:
         "fastq_files/log/{sample}.log"
     shell:
-        """(
-        fasterq-dump -O fastq_files/ {input} 
-        ) >{output} 2>&1 && touch {output}"""
+        """
+        (fasterq-dump -O fastq_files/ {input}) >{output} 2>&1 && touch {output}
+        """
 
 # Build the reference index for the Bowtie2 process.
 rule bowtieindex:
@@ -138,7 +142,6 @@ rule denovo:
         if test -f "Bowtie2/{wildcards.sample}_single.mapped.fastq"; then
             mpirun -n 2 Ray -s Bowtie2/{wildcards.sample}_single.mapped.fastq -o denovo/{wildcards.sample}.forblast 1>/dev/null 2>> {output[1]}
         fi
-
         touch {output}
         """
 
@@ -180,7 +183,7 @@ rule keywords:
     output:
         "Keywords.txt"
     script:
-        "keyword.py"
+        "../scripts/keyword.py"
 
 # Matches the blast results to the Keywords and puts this into a hits file.
 rule blastmatcher:
@@ -244,6 +247,7 @@ rule merge_acc:
         fi
         """
 
+# Removes any white space from the files.
 rule clean_acc:
     input:
         "blastoutput/fetched/rework/{sample}_accession.fasta"
@@ -253,3 +257,23 @@ rule clean_acc:
         """
         sed -i '/^$/d' {input} | cat {input} > {output}
         """
+
+rule delete_and_create:
+    input:
+        "blastoutput/fetched/total/{sample}_accession.fasta"
+    output:
+        "Postprocess/logs/{sample}.log.file"
+    log:
+        "Postprocess/logs/{sample}.log.file"
+    shell:
+        """
+        (touch directory(Postprocess/chimeras/
+        find fastq_files/ \( -name '{wildcards.sample}*.fastq' \) -exec rm "{{}}" \;
+        find trimmomatic/ \( -name '{wildcards.sample}*.fastq' \) -exec rm "{{}}" \;
+        ) >{log} 2>&1
+        """
+
+onsuccess:
+    with open("preprocess_dag.txt","w") as f:
+        f.writelines(str(workflow.persistence.dag))
+    shell("cat preprocess_dag.txt | dot -Tpng > preprocess_dag.png")
