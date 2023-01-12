@@ -1,11 +1,13 @@
-# Imports for python code within snakemake.
 import os
+import re
 import shutil
 import subprocess
-import re
 
-# Config file with all parameters.
 configfile: "Pipeline/config/config.yaml"
+
+rule do_postprocessing:
+    input:
+        expand("Postprocess/finished/{sample}_log.file", sample=config['samples'])
 
 rule Reference_builder:
     input:
@@ -13,11 +15,9 @@ rule Reference_builder:
     output:
         "Postprocess/references/{sample}/{sample}_reference.fasta"
     run:
-        for files in os.listdir("Postprocess/chimeras/"):
+        for files in os.listdir(f"Postprocess/chimeras/"):
             if wildcards.sample in files:
-                subprocess.call(f"grep -A 1 {wildcards.sample} {files} --no-group-separator > {output} && touch {output}", shell=True)
-            else:
-                print(files, "not a consensus")
+                subprocess.call(f"grep -A 1 {wildcards.sample} Postprocess/chimeras/{files} --no-group-separator > {output} && touch {output}",shell=True)
 
 rule Bowtie2_index:
     input:
@@ -32,7 +32,7 @@ rule Bowtie2_index:
             (bowtie2-build --threads 35 -f {input} Postprocess/references/{wildcards.sample}/ref_genome_btindex > {output}) > {log} && touch {output} 2>&1
         else
             touch {output}
-        fi
+        fi        
         """
 
 
@@ -70,15 +70,14 @@ rule sam_to_bam:
         "Postprocess/Bowtie2/{sample}/{sample}_samtobam.log"
     shell:
         """
-        (if [ -s Postprocess/Bowtie2/{wildcards.sample}/{wildcards.sample}.sam ]; then
-            samtools view --threads 20 -bSh -o {output[2]} {input}
-            samtools sort --threads 20 {output[2]} -o {output[0]}
-            bamtools split -in {output[0]} -reference
-
+        if [ -s {input[0]} ]; then
+            (samtools view --threads 20 -bSh -o {output[2]} {input}
+		    samtools sort --threads 20 {output[2]} -o {output[0]}
+		    bamtools split -in {output[0]} -reference && touch {output}
+            ) >{log} 2>&1
         else
             touch {output}
         fi
-        ) >{log} 2>&1
         """
 
 rule bamrename:
@@ -112,12 +111,9 @@ rule ref:
         "Postprocess/references/{sample}_refs.txt"
     shell:
         """
-        if [ -s {input[0]} ]; then
-            grep ">" {input[0]} | sed 's/.*_//' > {output}
-            awk '/^>/ {{OUT=substr($0,1) ".fa"}}; OUT {{print >OUT}}' {input[0]} && touch {output}
-        else
-            touch {output}
-        fi
+        grep ">" {input[0]} | sed 's/.*_//' > {output}
+		awk '/^>/ {{OUT=substr($0,1) ".fa"}}; OUT {{print >OUT}}' {input[0]} && touch {output}
+
         """
 
 rule filerefrename:
@@ -146,8 +142,6 @@ rule filerefrename:
                     print(f"{''.join(srr)}{''.join(acc)}.fa")
                     os.renames(items,f"{''.join(srr)}{''.join(acc)}.fa")
                     shutil.move(f"{params.workdir}/{''.join(srr)}{''.join(acc)}.fa",f"Postprocess/references/{wildcards.sample}/accessions/{''.join(srr)}{''.join(acc)}.fa")
-
-"-----------------------------------------------------------------------------------"
 
 rule process:
     input:
@@ -178,11 +172,12 @@ rule deletefiles:
         "Postprocess/finished/{sample}_log.file"
     shell:
         """
+        find fastq_files/ \( -name '{wildcards.sample}*.fastq' \) -exec rm "{{}}" \;
+        find trimmomatic/ \( -name '{wildcards.sample}*.fastq' \) -exec rm "{{}}" \;
         find Bowtie2/ \( -name '{wildcards.sample}*.fastq' -o -name '{wildcards.sample}*.sam' \) -exec rm "{{}}" \;
         echo files for {wildcards.sample} have been deleted > {output}
         """
 
-onsuccess:
-    with open("postprocess_dag.txt","w") as f:
-        f.writelines(str(workflow.persistence.dag))
-    shell("cat postprocess_dag.txt | dot -Tpng > postprocess_dag.png")
+
+
+

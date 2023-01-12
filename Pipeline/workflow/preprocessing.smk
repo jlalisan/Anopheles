@@ -6,15 +6,11 @@ import re
 # Config file with all parameters.
 configfile: "Pipeline/config/config.yaml"
 
-rule do_preprocessing:
-    input:
-        expand("Postprocess/logs/{sample}.log.file", sample=config['samples'])
-
 # Prefetches all the files from the config.
 rule prefetching:
     priority: 10
     output:
-        # Output is put on temp, so after they are no longer needed they are deleted.
+        # Output is put on temp so after they are no longer needed they are deleted.
         temp("sra_files/{sample}/{sample}.sra")
     log:
         "sra_files/logs/{sample}.log"
@@ -33,9 +29,9 @@ rule fastqdump:
     output:
         "fastq_files/log/{sample}.log"
     shell:
-        """
-        (fasterq-dump -O fastq_files/ {input}) >{output} 2>&1 && touch {output}
-        """
+        """(
+        fasterq-dump -O fastq_files/ {input} 
+        ) >{output} 2>&1 && touch {output}"""
 
 # Build the reference index for the Bowtie2 process.
 rule bowtieindex:
@@ -113,10 +109,10 @@ rule bowtie2:
         # Tests if the files are paired or unpaired and maps them accordingly.
         """
         if test -f "trimmomatic/{wildcards.sample}_1.trim.fastq"; then
-            bowtie2 -p 20 --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_unmapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
+            bowtie2 -p 20 --local --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_unmapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
         fi
         if test -f "trimmomatic/{wildcards.sample}.trim.fastq"; then
-            bowtie2 -p 10 --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
+            bowtie2 -p 10 --local --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
         fi
         touch {output}
         """
@@ -142,6 +138,7 @@ rule denovo:
         if test -f "Bowtie2/{wildcards.sample}_single.mapped.fastq"; then
             mpirun -n 2 Ray -s Bowtie2/{wildcards.sample}_single.mapped.fastq -o denovo/{wildcards.sample}.forblast 1>/dev/null 2>> {output[1]}
         fi
+
         touch {output}
         """
 
@@ -247,7 +244,6 @@ rule merge_acc:
         fi
         """
 
-# Removes any white space from the files.
 rule clean_acc:
     input:
         "blastoutput/fetched/rework/{sample}_accession.fasta"
@@ -267,13 +263,18 @@ rule delete_and_create:
         "Postprocess/logs/{sample}.log.file"
     shell:
         """
-        (touch directory(Postprocess/chimeras/
+        if ! [ -s Postprocess/chimeras/ ]; then
+            mkdir Postprocess/chimeras/
+        else
+            echo "Making correct directory"
+        fi
+
         find fastq_files/ \( -name '{wildcards.sample}*.fastq' \) -exec rm "{{}}" \;
         find trimmomatic/ \( -name '{wildcards.sample}*.fastq' \) -exec rm "{{}}" \;
-        ) >{log} 2>&1
+         >{log} 2>&1
         """
 
 onsuccess:
-    with open("preprocess_dag.txt","w") as f:
+    with open("total_dag.txt","w") as f:
         f.writelines(str(workflow.persistence.dag))
-    shell("cat preprocess_dag.txt | dot -Tpng > preprocess_dag.png")
+    shell("cat total_dag.txt | dot -Tpng > total_dag.png")
