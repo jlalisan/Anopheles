@@ -55,11 +55,13 @@ Diamond blast (2.0.14) is used to see if there are viruses within the data and f
 The Lofreq tool (2.1.6) is used in the final stage of the post-processing to create the VCF files, this can be obtained via [this link](https://github.com/CSB5/lofreq/tree/master/dist). An installation guide is included within the repository
 
 ### Packages
-|Name                                   |Version              |
-|---                                    |---                  |
-|os                                     |Varies per device    |
-|re                                     |2022.6.2             |
-|subprocess                             |3.7                  |
+|Name                                   | Version           |
+|---                                    |-------------------|
+|os                                     | Varies per device |
+|re                                     | 2022.6.2          |
+|subprocess                             | 3.7               |
+|random                                 | 3.7               |
+|shutil                                 | 3.7               |
 
 The packages used within this pipeline are used with Python version 3.7, any version above 3.7 should also work. Do note that these packages are for the Snakemake scripts and not the python scripts within the repository. 
 
@@ -68,62 +70,66 @@ The pipeline consists of three main scripts. Pre-processing, processing and post
 
 For the pipeline input the following steps are taken:
 
-![Steps for the pipeline](pipeline.png)
+![Steps for the pipeline](pipeline.jpeg)
 The image above shows four samples running in parallel, once all the samples are marked down in the configuration file the program only needs to be started once.
 
-`rule prefetching:` Prefetches the files from the config.  
+`rule Prefetching:` Prefetches the files from the config.  
 
-`rule fastq_dump`: Downloads the prefetched files.  
+`rule Fasterq_dump`: Downloads the prefetched files.  
 
-`rule bowtieindex:` Creates the Bowtie index from the reference genome.  
+`rule Bowtieindex:` Creates the Bowtie index from the reference genome.  
 
-`rule trimmomatic:` Trims the files with the config parameters.  
+`rule Trimmomatic:` Trims the files with the config parameters.  
 
-`rule bowtiemerger:` Merges the paired files received from trimmomatic.  
+`rule Bowtie_merger:` Merges the paired files received from trimmomatic.  
 
 `rule Bowtie2:` Maps the files.
 
-`rule denovo:` Assembles the files and creates contigs.
+`rule Denovo:` Assembles the files and creates contigs.
 
-`rule get_contigs:`Moves the contigs to the correct position.
+`rule Get_contigs:`Moves the contigs to the correct position.
 
-`rule blasting:` Uses diamond blast according to config.  
+`rule Blasting:` Uses diamond blast according to config.  
 
-`rule keywords:` Uses Keywords.py to get the correct keywords.  
+`rule Keywords:` Uses Keywords.py to get the correct keywords.  
 
-`rule blastmatcher:`Matches the outcome to the keywords to identify viruses.  
+`rule Blast_matcher:`Matches the outcome to the keywords to identify viruses.  
 
-`rule efetcher:` Efetches the viral sequences.  
+`rule Efetcher:` Efetches the viral sequences.  
 
-`rule merge_acc:` Merges the efetched files.  
+`rule Merge_acc:` Merges the efetched files.  
 
-`rule bowtieindex:` Creates the Bowtie index for the processing.  
+`rule Clean_acc:` Strips off any white space in the files.
 
-`rule Bowtie2:`Maps the new references to the contigs.  
+`rule Clean_env:` Deletes large unused files and makes the Geneious directory. Only visible when using the Geneious approach.
 
-`rule adjust_sam:`Corrects any duplicates within the SAM file.  
+`rule Bowtie_index:` Creates the Bowtie index for the processing.  
 
-`rule create_consensus:` Creates a consensus sequence.    
+`rule Bowtie2_process:`Maps the new references to the contigs.  
 
-`rule adjust_consencus:` Adjusts the consensus sequence to use the SRR name.   
+`rule Adjust_sam:`Corrects any duplicates within the SAM file.  
 
-`rule reference_builder:` Builds the references for use.  
+`rule Create_consensus:` Creates a consensus sequence.    
 
-`rule Bowtie2_index:` Builds the Bowtie index for post processing.    
+`rule Adjust_consencus:` Adjusts the consensus sequence to use the SRR name.   
+
+`rule Reference_builder:` Builds the references for use.  
+
+`rule Bowtie2_index:` Builds the Bowtie index for post-processing.    
 
 `rule Bowtie2_post:` Maps the processed files.   
 
-`rule sam_to_bam:` Makes the SAM files to BAM files.   
+`rule Sam_to_bam:` Makes the SAM files to BAM files.   
 
-`rule bamrename:`Corrects the expanded name for usage (BAM file).  
+`rule Bam_rename:`Corrects the expanded name for usage (BAM file).  
 
-`rule ref:` Creates the references for the processing.   
+`rule Ref:` Creates the references for the processing.   
 
-`rule reffilerename:` Renames the incorrectly named references and moves these.  
+`rule Ref_rename:` Renames the incorrectly named references and moves these.  
 
-`rule process:` Processes the BAM files to .vcf files.  
+`rule Process:` Processes the BAM files to .vcf files.  
 
-`rule delete_files:` Deletes the files that were used.  
+`rule Delete_files:` Deletes the files that were used.  
 
 In order to run the pipeline the user will need to have all the tools in the correct locations that correspond to that paths, any errors that do appear will be logged in the log files. The script can be run in two parts, either the total script or the pre-processing and the post-processing with a manual mapping, and consensus procedure in between. 
 The Geneious software is not included inside this repository, this can be obtained by the user. Note this is a paid program.

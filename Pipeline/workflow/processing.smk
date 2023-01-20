@@ -6,6 +6,11 @@ import random
 # Config file with all parameters.
 configfile: "Pipeline/config/config.yaml"
 
+# Does processing (Geneious is recommended)
+rule Do_processing:
+    input:
+        expand("Postprocess/chimeras/{sample}_consensus.fasta", sample=config['samples'])
+
 # Build the new Bowtie index.
 rule Bowtie_index:
     priority: 5
@@ -19,16 +24,15 @@ rule Bowtie_index:
         "Geneious/Bowtie2/{sample}/benchmark/Bowtiebench.csv"
     shell:
         """
-        (if [ -s {input[0]} ]; then
-            bowtie2-build {input} Geneious/Bowtie2/{wildcards.sample}/ref_genome_btindex > {output} 2>&1
+        if [ -s {input[0]} ]; then
+            (bowtie2-build {input} Geneious/Bowtie2/{wildcards.sample}/ref_genome_btindex > {output}) >{log} 2>&1
         else
             touch {output}
         fi
-        ) >{log} 2>&1
         """
 
 # Maps the contigs against the references (accessions).
-rule Bowtie2:
+rule Bowtie2_Process:
     priority: 4
     input:
         "contigs/{sample}.Contigs.fasta",
@@ -45,15 +49,15 @@ rule Bowtie2:
         "Geneious/Bowtie2/benchmark/{sample}_bench.txt"
     shell:
         """
-        if [ -s {input[1]} ]; then
-            bowtie2 -x {params.btindex} -fa {input[0]} --no-unal -S {output} 2>> {log}
+        if [ -s {input[0]} ]; then
+            bowtie2 -x {params.btindex} -fa {input[0]} -S {output} 2>> {log} && touch {output}
         else
             touch {output}
         fi
         """
 
 # Adjusts the sam in case of duplicate contig names.
-rule adjust_sam:
+rule Adjust_sam:
     priority: 3
     input:
         "Geneious/Bowtie2/mapped/{sample}.sam"
@@ -86,7 +90,7 @@ rule adjust_sam:
                     adjusted_sam.write(line)
 
 # Creates the consensus sequence.
-rule create_consensus:
+rule Create_consensus:
     priority: 4
     input:
         "blastoutput/fetched/total/{sample}_accession.fasta",
@@ -112,14 +116,14 @@ rule create_consensus:
         """
 
 # Adjust the consensus, so it has the SRR name in it.
-rule adjust_consensus:
+rule Adjust_consensus:
     priority: 2
     input:
         "Geneious/chimeras/{sample}_consensus.fasta"
     output:
         "Postprocess/chimeras/{sample}_consensus.fasta"
     run:
-        subprocess.call(f"touch {output} ",shell=True)
+        subprocess.call(f"touch {output} ", shell=True)
         myfile = open(f'{input}')
         with open(f'{output}',"r+") as adjusted_consensus:
             for line in myfile:

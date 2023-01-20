@@ -1,4 +1,4 @@
-# Imports for python code within snakemake.
+# Imports for Python code within Snakemake.
 import os
 import shutil
 import subprocess
@@ -6,13 +6,14 @@ import re
 import random
 
 # Config file with all parameters.
-configfile: "config.yaml"
+configfile: "Pipeline/config/config.yaml"
+
 
 # Prefetches all the files from the config.
-rule prefetching:
+rule Prefetching:
     priority: 10
     output:
-        # Output is put on temp so after they are no longer needed they are deleted.
+        # Output is put on temp, so after they are no longer needed they are deleted.
         temp("sra_files/{sample}/{sample}.sra")
     log:
         "sra_files/logs/{sample}.log"
@@ -24,19 +25,19 @@ rule prefetching:
         """
 
 # Downloads the fastq files from the config.
-rule fasterqdump:
+rule Fasterqdump:
     priority: 9
     input:
         "sra_files/{sample}/{sample}.sra"
     output:
         "fastq_files/log/{sample}.log"
     shell:
-        """
-        (fasterq-dump -O fastq_files/ {input}) >{output} 2>&1 && touch {output}
-        """
+        """(
+        fasterq-dump -O fastq_files/ {input} 
+        ) >{output} 2>&1 && touch {output}"""
 
 # Build the reference index for the Bowtie2 process.
-rule bowtieindex:
+rule Bowtie_index:
     priority: 10
     input:
         # Reference genome from the config.
@@ -53,7 +54,7 @@ rule bowtieindex:
         """
 
 # Trims the files according to the config settings.
-rule trimmomatic:
+rule Trimmomatic:
     priority: 8
     input:
         "fastq_files/log/{sample}.log",
@@ -83,7 +84,7 @@ rule trimmomatic:
         """
 
 # Merges the remainder of the paired files for the Bowtie2 process
-rule bowtiemerger:
+rule Bowtie_merger:
     input:
         "trimmomatic/logs/{sample}_trimmed.log"
     output:
@@ -99,7 +100,7 @@ rule bowtiemerger:
         """
 
 # Maps the reads for paired and single files.
-rule bowtie2:
+rule Bowtie2:
     input:
         "trimmomatic/logs/{sample}_merged.log",
         "trimmomatic/logs/{sample}_trimmed.log"
@@ -111,16 +112,16 @@ rule bowtie2:
         # Tests if the files are paired or unpaired and maps them accordingly.
         """
         if test -f "trimmomatic/{wildcards.sample}_1.trim.fastq"; then
-            bowtie2 -p 20 --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_unmapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
+            bowtie2 -p 20 --local --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_unmapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
         fi
         if test -f "trimmomatic/{wildcards.sample}.trim.fastq"; then
-            bowtie2 -p 10 --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
+            bowtie2 -p 10 --local --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
         fi
         touch {output}
         """
 
 # Get contigs for blasting. using RAY denovo assembly.
-rule denovo:
+rule Denovo:
     input:
         "Bowtie2/log/{sample}_unmapped.log"
     output:
@@ -145,7 +146,7 @@ rule denovo:
         """
 
 # Gathers all the contigs together and moves this to the correct location.
-rule getcontigs:
+rule Get_Contigs:
     input:
         "denovo/log/{sample}_u.log.file",
         "denovo/log/{sample}_log.file"
@@ -161,7 +162,7 @@ rule getcontigs:
         """
 
 # Blasts the contigs to check for any hits.
-rule blasting:
+rule Blasting:
     input:
         "contigs/{sample}.Contigs.fasta"
     output:
@@ -171,21 +172,20 @@ rule blasting:
     log: "blastoutput/log/{sample}_log.file"
     run:
         if os.stat(f"{input}").st_size > 1:
+            # Calls on diamond to do the blasting with the database.
             subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input[0]} --sensitive --threads 8 --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} 2>> {log}",shell=True)
-            subprocess.call(f"echo {wildcards.sample}",shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
-
 # Uses the Keyword.py script to create Keywords.txt according to the config.
-rule keywords:
+rule Keywords:
     output:
         "Keywords.txt"
     script:
-        "keyword.py"
+        "../scripts/keyword.py"
 
 # Matches the blast results to the Keywords and puts this into a hits file.
-rule blastmatcher:
+rule Blast_matcher:
     input:
         "blastoutput/{sample}_matches.tsv",
         "Keywords.txt"
@@ -194,13 +194,15 @@ rule blastmatcher:
         "blastoutput/accessions/{sample}_acc_hits.txt"
     run:
         if os.stat(f"{input[0]}").st_size > 1:
+            # Grabs the correct keywords.
             subprocess.call(f"grep -f {input[1]} {input[0]} > {output[0]}",shell=True)
+            # Matches these keys to the output and only matches get moved along.
             subprocess.call("awk '{{print $2}}' " + f"{output[0]} | sort | uniq > {output[1]} && touch {output}",shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
-# Fetches the hits and puts these into a seperate folder.
-rule efetcher:
+# Fetches the hits and puts these into a separate folder.
+rule Efetcher:
     priority: 2
     input:
         "blastoutput/accessions/{sample}_acc_hits.txt"
@@ -232,29 +234,43 @@ rule efetcher:
                         subprocess.call(seqfetch,shell=True)
 
 # Merges all the accessions per SRR file.
-rule merge_acc:
+rule Merge_acc:
     input:
         "blastoutput/fetched/bench/{sample}.bench.txt"
     output:
         "blastoutput/fetched/rework/{sample}_accession.fasta"
     shell:
         """
-        if ! [[ -z $(grep '[^[:space:]]' blastoutput/{wildcards.sample}_matches.tsv) ]] ; then
-            cat blastoutput/fetched/{wildcards.sample}* > {output}
+        if test -f "blastoutput/{wildcards.sample}_ortho_matches.tsv"; then
+            if ! [[ -z $(grep '[^[:space:]]' blastoutput/{wildcards.sample}_matches.tsv) ]] ; then
+                cat blastoutput/fetched/{wildcards.sample}* > {output}
+            else
+                touch {output}
+            fi
         else
             touch {output}
         fi
         """
 
-rule clean_acc:
+# Removes any white space since SAMtools later on does not handle that well.
+rule Clean_acc:
     input:
         "blastoutput/fetched/rework/{sample}_accession.fasta"
     output:
         "blastoutput/fetched/total/{sample}_accession.fasta"
-    shell:
-        """
-        sed -i '/^$/d' {input} | cat {input} > {output}
-        """
+    run:
+        # Creates directory
+        subprocess.call(f"touch {output} ",shell=True)
+        myfile = open(f'{input}')
+        with open(f'{output}',"r+") as accession:
+            for line in myfile:
+                # Sometimes the > is missing this is required.
+                if line.startswith("lcl"):
+                    accession.write("".join(f">" + line.strip()))
+                else:
+                    accession.write(line)
+        # Cleans the file.
+        subprocess.call(f"sed -i '/^$/d' {output}",shell=True)
 
 # Build the new Bowtie index.
 rule Bowtie_index:
@@ -269,15 +285,15 @@ rule Bowtie_index:
         "Geneious/Bowtie2/{sample}/benchmark/Bowtiebench.csv"
     shell:
         """
-        (if [ -s {input[0]} ]; then
-            bowtie2-build {input} Geneious/Bowtie2/{wildcards.sample}/ref_genome_btindex > {output} 2>&1
+        if [ -s {input[0]} ]; then
+            (bowtie2-build {input} Geneious/Bowtie2/{wildcards.sample}/ref_genome_btindex > {output}) >{log} 2>&1
         else
             touch {output}
         fi
-        ) >{log} 2>&1"""
+        """
 
 # Maps the contigs against the references (accessions).
-rule Bowtie2:
+rule Bowtie2_Process:
     priority: 4
     input:
         "contigs/{sample}.Contigs.fasta",
@@ -294,15 +310,15 @@ rule Bowtie2:
         "Geneious/Bowtie2/benchmark/{sample}_bench.txt"
     shell:
         """
-        if [ -s {input[1]} ]; then
-            bowtie2 -x {params.btindex} -fa {input[0]} --no-unal -S {output} 2>> {log}
+        if [ -s {input[0]} ]; then
+            bowtie2 -x {params.btindex} -fa {input[0]} -S {output} 2>> {log} && touch {output}
         else
             touch {output}
         fi
         """
 
 # Adjusts the sam in case of duplicate contig names.
-rule adjust_sam:
+rule Adjust_sam:
     priority: 3
     input:
         "Geneious/Bowtie2/mapped/{sample}.sam"
@@ -335,7 +351,7 @@ rule adjust_sam:
                     adjusted_sam.write(line)
 
 # Creates the consensus sequence.
-rule create_consensus:
+rule Create_consensus:
     priority: 4
     input:
         "blastoutput/fetched/total/{sample}_accession.fasta",
@@ -361,38 +377,36 @@ rule create_consensus:
         """
 
 # Adjust the consensus, so it has the SRR name in it.
-rule adjust_consensus:
+rule Adjust_consensus:
     priority: 2
     input:
         "Geneious/chimeras/{sample}_consensus.fasta"
     output:
         "Postprocess/chimeras/{sample}_consensus.fasta"
     run:
-        subprocess.call(f"touch {output} ",shell=True)
+        subprocess.call(f"touch {output} ", shell=True)
         myfile = open(f'{input}')
         with open(f'{output}',"r+") as adjusted_consensus:
             for line in myfile:
-                # If the line is an header then append the SRR name to it.
+                # If the line is a header then append the SRR name to it.
                 if line.startswith(">"):
                     adjusted_consensus.write("".join(f">{wildcards.sample}" + "_" + line.strip(">")))
                 else:
                     adjusted_consensus.write(line)
 
-
+# Builds the new set of references.
 rule Reference_builder:
     input:
-        "Postprocess/chimeras/{sample}_consensus.fasta"
+        "Postprocess/logs/{sample}.log.file"
     output:
         "Postprocess/references/{sample}/{sample}_reference.fasta"
-    shell:
-        """
-        if [ -s {input[0]} ]; then
-            grep -A 1 "{wildcards.sample}" {input} --no-group-separator > {output} && touch {output}
-        else
-            touch {output}
-        fi
-        """
+    run:
+        # Only looks for files in the build directory in case of the Geneious approach.
+        for files in os.listdir(f"Postprocess/chimeras/"):
+            if wildcards.sample in files:
+                subprocess.call(f"grep -A 1 {wildcards.sample} Postprocess/chimeras/{files} --no-group-separator > {output} && touch {output}",shell=True)
 
+# Build the Bowtie2 index for the post-processing.
 rule Bowtie2_index:
     input:
         "Postprocess/references/{sample}/{sample}_reference.fasta"
@@ -406,10 +420,10 @@ rule Bowtie2_index:
             (bowtie2-build --threads 35 -f {input} Postprocess/references/{wildcards.sample}/ref_genome_btindex > {output}) > {log} && touch {output} 2>&1
         else
             touch {output}
-        fi
+        fi        
         """
 
-
+# Runs the Bowtie2 mapping for the post-processing.
 rule Bowtie2_post:
     input:
         "Bowtie2/log/{sample}_unmapped.log",
@@ -430,10 +444,11 @@ rule Bowtie2_post:
             fi
         else
             touch {output}
-        fi  
+        fi
         """
 
-rule sam_to_bam:
+# Converts the Bowtie2 SAM files to BAM files.
+rule Sam_to_bam:
     input:
         "Postprocess/Bowtie2/{sample}/{sample}.sam"
     output:
@@ -444,41 +459,47 @@ rule sam_to_bam:
         "Postprocess/Bowtie2/{sample}/{sample}_samtobam.log"
     shell:
         """
-        (if [ -s Postprocess/Bowtie2/{wildcards.sample}/{wildcards.sample}.sam ]; then
-            samtools view --threads 20 -bSh -o {output[2]} {input}
-            samtools sort --threads 20 {output[2]} -o {output[0]}
-            bamtools split -in {output[0]} -reference
-
+        if [ -s {input[0]} ]; then
+            (samtools view --threads 20 -bSh -o {output[2]} {input}
+		    samtools sort --threads 20 {output[2]} -o {output[0]}
+		    bamtools split -in {output[0]} -reference && touch {output}
+            ) >{log} 2>&1
         else
             touch {output}
         fi
-        ) >{log} 2>&1
         """
 
-rule bamrename:
+# Renames the long file names the BAM files gained.
+rule Bam_rename:
     input:
-        "Postprocess/Bowtie2/{sample}/{sample}_sort.REF_unmapped.bam",
+        "Postprocess/Bowtie2/{sample}/{sample}_sort.REF_unmapped.bam"
     output:
         touch("logs/bams/{sample}_log.file"),
         directory("Postprocess/Bowtie2/{sample}/accessions")
     run:
+        # Storage for the SRR names and Accession names.
         srrname = []
         accname = []
+        # Makes directory for files to go to.
         os.makedirs(f"Postprocess/Bowtie2/{wildcards.sample}/accessions",exist_ok=True)
         for files in os.listdir(f"Postprocess/Bowtie2/{wildcards.sample}"):
+            # Only grab files with the correct name.
             if files.startswith(f"{wildcards.sample}_sort.REF_{wildcards.sample}"):
                 srrname.append(files.split('_')[0])
+                # Find the accession names and take these.
                 accname.append(re.findall("[A-Z 0-9]*[.][0-9]_1",files))
 
+        # Get ready to use the SRR and Accessions one by one.
         for index in range(len(srrname)):
             srr = srrname[index]
             acc = accname[index]
-
+            # Renames any file to SRR_Accession.bam.
             for files in os.listdir(f"Postprocess/Bowtie2/{wildcards.sample}"):
                 if ''.join(acc) in files and ''.join(srr) in files:
                     os.renames(f"Postprocess/Bowtie2/{wildcards.sample}/{files}",f"Postprocess/Bowtie2/{wildcards.sample}/accessions/{''.join(srr)}_{''.join(acc)}.bam")
 
-rule ref:
+# Creates separate references
+rule Ref:
     input:
         "Postprocess/references/{sample}/{sample}_reference.fasta",
         "logs/bams/{sample}_log.file"
@@ -486,15 +507,12 @@ rule ref:
         "Postprocess/references/{sample}_refs.txt"
     shell:
         """
-        if [ -s {input[0]} ]; then
-            grep ">" {input[0]} | sed 's/.*_//' > {output}
-            awk '/^>/ {{OUT=substr($0,1) ".fa"}}; OUT {{print >OUT}}' {input[0]} && touch {output}
-        else
-            touch {output}
-        fi
+        grep ">" {input[0]} | sed 's/.*_//' > {output}
+		awk '/^>/ {{OUT=substr($0,1) ".fa"}}; OUT {{print >OUT}}' {input[0]} && touch {output}
         """
 
-rule filerefrename:
+# Renames the references after creation.
+rule Ref_rename:
     input:
         "Postprocess/references/{sample}_refs.txt"
     output:
@@ -503,12 +521,16 @@ rule filerefrename:
     params:
         workdir=config['workdir']
     run:
+        # Saves the SRR names and accessions.
         srrnames = []
         accnames = []
+        # Similar to the Bamrename the files need proper names.
         os.makedirs(f"Postprocess/references/{wildcards.sample}/accessions",exist_ok=True)
         for items in os.listdir(f"{params.workdir}"):
             if items.startswith(f">{wildcards.sample}") or items.startswith(f"{wildcards.sample}"):
+                # Finds the Srr file names and adds them to the list.
                 srrnames.append(re.findall("[A-Z]...[0-9]*_",items))
+                # Finds the accession names and adds them to the list.
                 accnames.append(re.findall("[A-Z]...[0-9]*[.][0-9]_[0-9]",items))
 
         for index in range(len(srrnames)):
@@ -517,13 +539,12 @@ rule filerefrename:
 
             for items in os.listdir(f"{params.workdir}"):
                 if ''.join(acc) in items and ''.join(srr) in items:
-                    print(f"{''.join(srr)}{''.join(acc)}.fa")
+                    # Renames and moves the files for later usage.
                     os.renames(items,f"{''.join(srr)}{''.join(acc)}.fa")
                     shutil.move(f"{params.workdir}/{''.join(srr)}{''.join(acc)}.fa",f"Postprocess/references/{wildcards.sample}/accessions/{''.join(srr)}{''.join(acc)}.fa")
 
-"-----------------------------------------------------------------------------------"
-
-rule process:
+# Processes the files into VCF files
+rule Process:
     input:
         "Postprocess/references/{sample}_refs.txt",
         "Postprocess/Bowtie2/{sample}/accessions",
@@ -533,19 +554,26 @@ rule process:
         "Postprocess/processed/{sample}_log.file",
         directory("Postprocess/processed/{sample}")
     run:
+        # Makes output directory.
         os.makedirs(f"Postprocess/processed/{wildcards.sample}",exist_ok=True)
         for files in os.listdir(f"{input[1]}"):
             if files.endswith(".bam"):
+                # Indexes the files
                 subprocess.call(f"samtools index {input[1]}/{files}",shell=True)
+                # Creates the long coverage files to later be COV files.
                 subprocess.call(f"bedtools genomecov -d -ibam {input[1]}/{files} > {output[1]}/{files.split('.bam')[0]}_long.cov",shell=True)
+                # Grabs the coverage and makes COV files.
                 subprocess.call(f"grep {wildcards.sample} {output[1]}/{files.split('.bam')[0]}_long.cov > {output[1]}/{files.split('.bam')[0]}.cov",shell=True)
         for files in os.listdir(f"{input[2]}"):
             if files.endswith(".fa"):
+                # Indexes the references.
                 subprocess.call(f"samtools faidx {input[2]}/{files}",shell=True)
+                # Calls on Lofreq to build the VCF.
                 subprocess.call(f"./lofreq call -f {input[2]}/{files} -o {output[1]}/{files.split('.fa')[0]}.vcf {input[1]}/{files.split('.fa')[0]}.bam",shell=True)
         subprocess.call(f"touch {output[0]}",shell=True)
 
-rule deletefiles:
+# Deletes all files no longer used to avoid memory issues.
+rule Delete_files:
     input:
         "Postprocess/processed/{sample}_log.file"
     output:

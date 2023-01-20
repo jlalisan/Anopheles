@@ -1,24 +1,30 @@
+# Imports for the Python code.
 import os
 import re
 import shutil
 import subprocess
 
+# Imports the configuration file.
 configfile: "Pipeline/config/config.yaml"
 
-rule do_postprocessing:
+# Makes running the post-processing available from the terminal. Runs entire script
+rule Do_postprocessing:
     input:
         expand("Postprocess/finished/{sample}_log.file", sample=config['samples'])
 
+# Builds the new set of references.
 rule Reference_builder:
     input:
         "Postprocess/logs/{sample}.log.file"
     output:
         "Postprocess/references/{sample}/{sample}_reference.fasta"
     run:
+        # Only looks for files in the build directory in case of the Geneious approach.
         for files in os.listdir(f"Postprocess/chimeras/"):
             if wildcards.sample in files:
                 subprocess.call(f"grep -A 1 {wildcards.sample} Postprocess/chimeras/{files} --no-group-separator > {output} && touch {output}",shell=True)
 
+# Build the Bowtie2 index for the post-processing.
 rule Bowtie2_index:
     input:
         "Postprocess/references/{sample}/{sample}_reference.fasta"
@@ -35,7 +41,7 @@ rule Bowtie2_index:
         fi        
         """
 
-
+# Runs the Bowtie2 mapping for the post-processing.
 rule Bowtie2_post:
     input:
         "Bowtie2/log/{sample}_unmapped.log",
@@ -56,10 +62,11 @@ rule Bowtie2_post:
             fi
         else
             touch {output}
-        fi  
+        fi
         """
 
-rule sam_to_bam:
+# Converts the Bowtie2 SAM files to BAM files.
+rule Sam_to_bam:
     input:
         "Postprocess/Bowtie2/{sample}/{sample}.sam"
     output:
@@ -79,31 +86,37 @@ rule sam_to_bam:
             touch {output}
         fi
         """
-
-rule bamrename:
+# Renames the long file names the BAM files gained.
+rule Bam_rename:
     input:
-        "Postprocess/Bowtie2/{sample}/{sample}_sort.REF_unmapped.bam",
+        "Postprocess/Bowtie2/{sample}/{sample}_sort.REF_unmapped.bam"
     output:
         touch("logs/bams/{sample}_log.file"),
         directory("Postprocess/Bowtie2/{sample}/accessions")
     run:
+        # Storage for the SRR names and Accession names.
         srrname = []
         accname = []
+        # Makes directory for files to go to.
         os.makedirs(f"Postprocess/Bowtie2/{wildcards.sample}/accessions",exist_ok=True)
         for files in os.listdir(f"Postprocess/Bowtie2/{wildcards.sample}"):
+            # Only grab files with the correct name.
             if files.startswith(f"{wildcards.sample}_sort.REF_{wildcards.sample}"):
                 srrname.append(files.split('_')[0])
+                # Find the accession names and take these.
                 accname.append(re.findall("[A-Z 0-9]*[.][0-9]_1",files))
 
+        # Get ready to use the SRR and Accessions one by one.
         for index in range(len(srrname)):
             srr = srrname[index]
             acc = accname[index]
-
+            # Renames any file to SRR_Accession.bam.
             for files in os.listdir(f"Postprocess/Bowtie2/{wildcards.sample}"):
                 if ''.join(acc) in files and ''.join(srr) in files:
                     os.renames(f"Postprocess/Bowtie2/{wildcards.sample}/{files}",f"Postprocess/Bowtie2/{wildcards.sample}/accessions/{''.join(srr)}_{''.join(acc)}.bam")
 
-rule ref:
+# Creates separate references
+rule Ref:
     input:
         "Postprocess/references/{sample}/{sample}_reference.fasta",
         "logs/bams/{sample}_log.file"
@@ -113,10 +126,10 @@ rule ref:
         """
         grep ">" {input[0]} | sed 's/.*_//' > {output}
 		awk '/^>/ {{OUT=substr($0,1) ".fa"}}; OUT {{print >OUT}}' {input[0]} && touch {output}
-
         """
 
-rule filerefrename:
+# Renames the references after creation.
+rule Ref_rename:
     input:
         "Postprocess/references/{sample}_refs.txt"
     output:
@@ -125,13 +138,18 @@ rule filerefrename:
     params:
         workdir=config['workdir']
     run:
+        # Saves the SRR names and accessions.
         srrnames = []
         accnames = []
+        # Similar to the Bamrename the files need proper names.
         os.makedirs(f"Postprocess/references/{wildcards.sample}/accessions",exist_ok=True)
         for items in os.listdir(f"{params.workdir}"):
             if items.startswith(f">{wildcards.sample}") or items.startswith(f"{wildcards.sample}"):
+                # Finds the Srr file names and adds them to the list.
                 srrnames.append(re.findall("[A-Z]...[0-9]*_",items))
+                # Finds the accession names and adds them to the list.
                 accnames.append(re.findall("[A-Z]...[0-9]*[.][0-9]_[0-9]",items))
+
 
         for index in range(len(srrnames)):
             srr = srrnames[index]
@@ -139,11 +157,12 @@ rule filerefrename:
 
             for items in os.listdir(f"{params.workdir}"):
                 if ''.join(acc) in items and ''.join(srr) in items:
-                    print(f"{''.join(srr)}{''.join(acc)}.fa")
+                    # Renames and moves the files for later usage.
                     os.renames(items,f"{''.join(srr)}{''.join(acc)}.fa")
                     shutil.move(f"{params.workdir}/{''.join(srr)}{''.join(acc)}.fa",f"Postprocess/references/{wildcards.sample}/accessions/{''.join(srr)}{''.join(acc)}.fa")
 
-rule process:
+# Processes the files into VCF files
+rule Process:
     input:
         "Postprocess/references/{sample}_refs.txt",
         "Postprocess/Bowtie2/{sample}/accessions",
@@ -153,19 +172,26 @@ rule process:
         "Postprocess/processed/{sample}_log.file",
         directory("Postprocess/processed/{sample}")
     run:
+        # Makes output directory.
         os.makedirs(f"Postprocess/processed/{wildcards.sample}",exist_ok=True)
         for files in os.listdir(f"{input[1]}"):
             if files.endswith(".bam"):
+                # Indexes the files
                 subprocess.call(f"samtools index {input[1]}/{files}",shell=True)
+                # Creates the long coverage files to later be COV files.
                 subprocess.call(f"bedtools genomecov -d -ibam {input[1]}/{files} > {output[1]}/{files.split('.bam')[0]}_long.cov",shell=True)
+                # Grabs the coverage and makes COV files.
                 subprocess.call(f"grep {wildcards.sample} {output[1]}/{files.split('.bam')[0]}_long.cov > {output[1]}/{files.split('.bam')[0]}.cov",shell=True)
         for files in os.listdir(f"{input[2]}"):
             if files.endswith(".fa"):
+                # Indexes the references.
                 subprocess.call(f"samtools faidx {input[2]}/{files}",shell=True)
+                # Calls on Lofreq to build the VCF.
                 subprocess.call(f"./lofreq call -f {input[2]}/{files} -o {output[1]}/{files.split('.fa')[0]}.vcf {input[1]}/{files.split('.fa')[0]}.bam",shell=True)
         subprocess.call(f"touch {output[0]}",shell=True)
 
-rule deletefiles:
+# Deletes all files no longer used to avoid memory issues.
+rule Delete_files:
     input:
         "Postprocess/processed/{sample}_log.file"
     output:
@@ -178,6 +204,8 @@ rule deletefiles:
         echo files for {wildcards.sample} have been deleted > {output}
         """
 
-
-
-
+# Makes Dag diagram on success
+onsuccess:
+    with open("postprocess.txt","w") as f:
+        f.writelines(str(workflow.persistence.dag))
+    shell("cat postprocess_dag.txt | dot -Tpng > postprocess.png")

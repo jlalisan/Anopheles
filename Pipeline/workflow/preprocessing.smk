@@ -6,11 +6,15 @@ import re
 # Config file with all parameters.
 configfile: "Pipeline/config/config.yaml"
 
+rule Do_preprocess:
+    input:
+        expand("Postprocess/logs/{sample}.log.file", sample=config['samples'])
+
 # Prefetches all the files from the config.
-rule prefetching:
+rule Prefetching:
     priority: 10
     output:
-        # Output is put on temp so after they are no longer needed they are deleted.
+        # Output is put on temp, so after they are no longer needed they are deleted.
         temp("sra_files/{sample}/{sample}.sra")
     log:
         "sra_files/logs/{sample}.log"
@@ -22,7 +26,7 @@ rule prefetching:
         """
 
 # Downloads the fastq files from the config.
-rule fastqdump:
+rule Fasterqdump:
     priority: 9
     input:
         "sra_files/{sample}/{sample}.sra"
@@ -34,7 +38,7 @@ rule fastqdump:
         ) >{output} 2>&1 && touch {output}"""
 
 # Build the reference index for the Bowtie2 process.
-rule bowtieindex:
+rule Bowtieindex:
     priority: 10
     input:
         # Reference genome from the config.
@@ -51,7 +55,7 @@ rule bowtieindex:
         """
 
 # Trims the files according to the config settings.
-rule trimmomatic:
+rule Trimmomatic:
     priority: 8
     input:
         "fastq_files/log/{sample}.log",
@@ -81,7 +85,7 @@ rule trimmomatic:
         """
 
 # Merges the remainder of the paired files for the Bowtie2 process
-rule bowtiemerger:
+rule Bowtie_merger:
     input:
         "trimmomatic/logs/{sample}_trimmed.log"
     output:
@@ -97,7 +101,7 @@ rule bowtiemerger:
         """
 
 # Maps the reads for paired and single files.
-rule bowtie2:
+rule Bowtie2:
     input:
         "trimmomatic/logs/{sample}_merged.log",
         "trimmomatic/logs/{sample}_trimmed.log"
@@ -118,7 +122,7 @@ rule bowtie2:
         """
 
 # Get contigs for blasting. using RAY denovo assembly.
-rule denovo:
+rule Denovo:
     input:
         "Bowtie2/log/{sample}_unmapped.log"
     output:
@@ -143,7 +147,7 @@ rule denovo:
         """
 
 # Gathers all the contigs together and moves this to the correct location.
-rule getcontigs:
+rule Get_Contigs:
     input:
         "denovo/log/{sample}_u.log.file",
         "denovo/log/{sample}_log.file"
@@ -159,7 +163,7 @@ rule getcontigs:
         """
 
 # Blasts the contigs to check for any hits.
-rule blasting:
+rule Blasting:
     input:
         "contigs/{sample}.Contigs.fasta"
     output:
@@ -169,21 +173,21 @@ rule blasting:
     log: "blastoutput/log/{sample}_log.file"
     run:
         if os.stat(f"{input}").st_size > 1:
+            # Calls on diamond to do the blasting with the database.
             subprocess.call(f"./diamond blastx -d  {params.diamond} -q {input[0]} --sensitive --threads 8 --quiet -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids skingdoms sscinames stitle -k 1 -o {output} 2>> {log}",shell=True)
-            subprocess.call(f"echo {wildcards.sample}",shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
 
 # Uses the Keyword.py script to create Keywords.txt according to the config.
-rule keywords:
+rule Keywords:
     output:
         "Keywords.txt"
     script:
         "../scripts/keyword.py"
 
 # Matches the blast results to the Keywords and puts this into a hits file.
-rule blastmatcher:
+rule Blast_matcher:
     input:
         "blastoutput/{sample}_matches.tsv",
         "Keywords.txt"
@@ -192,13 +196,15 @@ rule blastmatcher:
         "blastoutput/accessions/{sample}_acc_hits.txt"
     run:
         if os.stat(f"{input[0]}").st_size > 1:
+            # Grabs the correct keywords.
             subprocess.call(f"grep -f {input[1]} {input[0]} > {output[0]}",shell=True)
+            # Matches these keys to the output and only matches get moved along.
             subprocess.call("awk '{{print $2}}' " + f"{output[0]} | sort | uniq > {output[1]} && touch {output}",shell=True)
         else:
             subprocess.call(f"touch {output}",shell=True)
 
-# Fetches the hits and puts these into a seperate folder.
-rule efetcher:
+# Fetches the hits and puts these into a separate folder.
+rule Efetcher:
     priority: 2
     input:
         "blastoutput/accessions/{sample}_acc_hits.txt"
@@ -230,31 +236,46 @@ rule efetcher:
                         subprocess.call(seqfetch,shell=True)
 
 # Merges all the accessions per SRR file.
-rule merge_acc:
+rule Merge_acc:
     input:
         "blastoutput/fetched/bench/{sample}.bench.txt"
     output:
         "blastoutput/fetched/rework/{sample}_accession.fasta"
     shell:
         """
-        if ! [[ -z $(grep '[^[:space:]]' blastoutput/{wildcards.sample}_matches.tsv) ]] ; then
-            cat blastoutput/fetched/{wildcards.sample}* > {output}
+        if test -f "blastoutput/{wildcards.sample}_ortho_matches.tsv"; then
+            if ! [[ -z $(grep '[^[:space:]]' blastoutput/{wildcards.sample}_matches.tsv) ]] ; then
+                cat blastoutput/fetched/{wildcards.sample}* > {output}
+            else
+                touch {output}
+            fi
         else
             touch {output}
         fi
         """
 
-rule clean_acc:
+# Removes any white space since SAMtools later on does not handle that well.
+rule Clean_acc:
     input:
         "blastoutput/fetched/rework/{sample}_accession.fasta"
     output:
         "blastoutput/fetched/total/{sample}_accession.fasta"
-    shell:
-        """
-        sed -i '/^$/d' {input} | cat {input} > {output}
-        """
+    run:
+        # Creates directory
+        subprocess.call(f"touch {output} ",shell=True)
+        myfile = open(f'{input}')
+        with open(f'{output}',"r+") as accession:
+            for line in myfile:
+                # Sometimes the > is missing this is required.
+                if line.startswith("lcl"):
+                    accession.write("".join(f">" + line.strip()))
+                else:
+                    accession.write(line)
+        # Cleans the file.
+        subprocess.call(f"sed -i '/^$/d' {output}",shell=True)
 
-rule delete_and_create:
+# Creates directory for Geneious and cleans environment.
+rule Clean_env:
     input:
         "blastoutput/fetched/total/{sample}_accession.fasta"
     output:
@@ -274,7 +295,8 @@ rule delete_and_create:
          >{log} 2>&1
         """
 
+# Makes Dag diagram on success
 onsuccess:
-    with open("total_dag.txt","w") as f:
+    with open("preprocess.txt","w") as f:
         f.writelines(str(workflow.persistence.dag))
-    shell("cat total_dag.txt | dot -Tpng > total_dag.png")
+    shell("cat preprocess_dag.txt | dot -Tpng > preprocess.png")
