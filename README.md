@@ -136,7 +136,7 @@ The Geneious software is not included inside this repository, this can be obtain
 
 ## Examples
 Snakemake code can be run in various ways, below are examples in which the code will run.  
-Run one: A single run of the code using four cores of the system.
+Run one: A single run of the code using four cores of the system.    
 ```snakemake --snakefile main.smk -c4 --allow-ambiguity```  
 With this statement the script in this case main (this can be replaced with another script) will be run on four cores, the '--allow-ambiguity' is added so that the code does not error if a rule has similar output to another rule.
 
