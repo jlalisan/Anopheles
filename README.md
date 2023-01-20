@@ -70,7 +70,7 @@ The pipeline consists of three main scripts. Pre-processing, processing and post
 
 For the pipeline input the following steps are taken:
 
-![Steps for the pipeline](pipeline.jpeg)
+![Steps for the pipeline](pipeline.jpeg)   
 The image above shows four samples running in parallel, once all the samples are marked down in the configuration file the program only needs to be started once.
 
 `rule Prefetching:` Prefetches the files from the config.  
