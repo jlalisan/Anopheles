@@ -43,15 +43,18 @@ rule Bowtieindex:
     input:
         # Reference genome from the config.
         refgen=config['refgen']
+        hostgen=config['hostgen']
     output:
-        "Bowtie2/btbuild.log"
+        "Bowtie2/btbuild.log",
+        "Bowtie2/btbuild_host.log"
     log:
         "Bowtie2/log/Bowtie.log"
     benchmark:
         "Bowtie2/benchmarks/Bowtiebench.csv"
     shell:
         """
-        (bowtie2-build {input.refgen} Bowtie2/ref_genome_btindex > {output}) >{log} 2>&1
+        (bowtie2-build {input.refgen} Bowtie2/ref_genome_btindex > {output[0]}
+         bowtie2-build {input.hostgen} Bowtie2/host_genome_btindex > {output[1]} 2>> {log})
         """
 
 # Trims the files according to the config settings.
@@ -59,7 +62,8 @@ rule Trimmomatic:
     priority: 8
     input:
         "fastq_files/log/{sample}.log",
-        "Bowtie2/btbuild.log"
+        "Bowtie2/btbuild.log",
+        "Bowtie2/btbuild_host.log"
     output:
         "trimmomatic/logs/{sample}_trimmed.log"
     params:
@@ -106,25 +110,46 @@ rule Bowtie2:
         "trimmomatic/logs/{sample}_merged.log",
         "trimmomatic/logs/{sample}_trimmed.log"
     output:
-        "Bowtie2/log/{sample}_unmapped.log"
+        "Bowtie2/log/{sample}_unmapped_ref.log"
     params:
         btindex=config['btindex']
     shell:
         # Tests if the files are paired or unpaired and maps them accordingly.
         """
         if test -f "trimmomatic/{wildcards.sample}_1.trim.fastq"; then
-            bowtie2 -p 20 --local --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_unmapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
+            bowtie2 -p 20 --end-to-end -x {params.btindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --al-conc Bowtie2/{wildcards.sample}_mapped.fastq --al Bowtie2/{wildcards.sample}_unpaired.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
         fi
         if test -f "trimmomatic/{wildcards.sample}.trim.fastq"; then
-            bowtie2 -p 10 --local --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
+            bowtie2 -p 10 --end-to-end -x {params.btindex} trimmomatic/{wildcards.sample}.trim.fastq --al Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
         fi
         touch {output}
+        """
+
+rule Bowtie2Host:
+    input:
+        "trimmomatic/logs/{sample}_merged.log",
+        "trimmomatic/logs/{sample}_trimmed.log"
+    output:
+        "Bowtie2/log/{sample}_unmapped_host.log"
+    params:
+        hostindex=config['hostindex']
+    shell:
+        # Tests if the files are paired or unpaired and maps them accordingly.
+        """
+        if test -f "trimmomatic/{wildcards.sample}_1.trim.fastq"; then
+            bowtie2 -p 20 --local -x {params.hostindex} --fr -1 trimmomatic/{wildcards.sample}_1.trim.fastq -2 trimmomatic/{wildcards.sample}_2.trim.fastq -U trimmomatic/{wildcards.sample}_merged.fastq --un-conc Bowtie2/{wildcards.sample}_unmapped.fastq --un Bowtie2/{wildcards.sample}_unpaired.unmapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output} 2>&1
+        fi
+        if test -f "trimmomatic/{wildcards.sample}.trim.fastq"; then
+            bowtie2 -p 10 --local -x {params.hostindex} trimmomatic/{wildcards.sample}.trim.fastq --un Bowtie2/{wildcards.sample}_single.mapped.fastq 1> Bowtie2/{wildcards.sample}.sam 2>> {output}
+        fi
+        touch {output}    
         """
 
 # Get contigs for blasting. using RAY denovo assembly.
 rule Denovo:
     input:
-        "Bowtie2/log/{sample}_unmapped.log"
+        "Bowtie2/log/{sample}_unmapped_ref.log",
+        "Bowtie2/log/{sample}_unmapped_host.log"
     output:
         "denovo/log/{sample}_u.log.file",
         "denovo/log/{sample}_log.file"
@@ -142,7 +167,6 @@ rule Denovo:
         if test -f "Bowtie2/{wildcards.sample}_single.mapped.fastq"; then
             mpirun -n 2 Ray -s Bowtie2/{wildcards.sample}_single.mapped.fastq -o denovo/{wildcards.sample}.forblast 1>/dev/null 2>> {output[1]}
         fi
-
         touch {output}
         """
 
