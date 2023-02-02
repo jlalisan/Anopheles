@@ -24,6 +24,9 @@ refgen: "/media/studentVEE/Data/Lisan/PycharmProjects/Pipeline/Pipeline/workflow
 # The Bowtie2 reference files after Bowtie2 builds this for the preprocessing.
 btindex: "Bowtie2/ref_genome_btindex"
 
+# The Bowtie2 host index.
+hostindex: "Bowtie2/host_genome_btindex"
+
 # Please enter Path to the diamond database.
 diamond: "/media/studentVEE/Data/diamond_blast_nr/nr_diamond.dmnd"
 
